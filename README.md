@@ -1,36 +1,118 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI Risk Sentinel
 
-## Getting Started
+AI Risk Sentinel is an enterprise-grade platform for payment fraud detection, network-based abuse management, and machine learning model telemetry. 
 
-First, run the development server:
+The platform integrates a dynamic Next.js-based analyst dashboard with a high-performance Python data workbench designed around the industry-standard **IEEE-CIS Fraud Detection** dataset.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+---
+
+## 🏗️ Platform Architecture
+
+The project consists of two primary components:
+
+1. **AI Risk Dashboard (Frontend)**: A Next.js, React, and TypeScript application for real-time risk alerts, transaction queue management, entity graph visualization, and model monitoring (policies, feature drift, and coordination rings).
+2. **Dataset Workbench (Backend Pipeline)**: A Python pipeline that automates downloading the raw IEEE-CIS dataset, merging transaction and identity data, running dynamic audits, and structuring tables for database schemas.
+
+```text
+                  IEEE-CIS Kaggle Raw Data
+                             │
+                             ▼
+                    [Dataset Workbench]
+                             │
+            ┌────────────────┴────────────────┐
+            ▼                                 ▼
+   [ML Modeling Dataset]             [Application Schema]
+     (merged_train.parquet)            (schema.sql)
+                                              │
+                                              ▼
+                                       [SQLite Database]
+                                      (risk_sentinel.db)
+                                              │
+                                              ▼
+                                     [Analyst Dashboard]
+                                    (Next.js App Server)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 📁 Directory Structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```text
+Razorpay_Build/
+├── README.md                 # Root platform documentation
+├── CLAUDE.md                 # Developer CLI command cheatsheet
+├── AGENTS.md                 # Custom rules and guidelines
+├── dataset/                  # Python Data Engineering Pipeline
+│   ├── download.py           # Kagglehub raw dataset downloader
+│   ├── audit.py              # Dynamic chunked data audit & report generator
+│   ├── build_merged_dataset.py # Validation-based transaction-identity merger
+│   ├── preprocess.py         # DB schema setup and SQLite compiler
+│   ├── schema.sql            # SQLite relational database schema
+│   ├── requirements.txt      # Python dependencies
+│   └── data/                 # Raw and processed files (Git-ignored)
+└── frontend/                 # Next.js TypeScript App
+    ├── package.json          # Node dependencies
+    ├── src/
+    │   ├── app/              # Page layouts & router endpoints
+    │   ├── components/       # Core UI elements (Rings, Search, Stats)
+    │   ├── services/         # API & simulated database connection state
+    │   └── data/             # Frontend typescript schemas and mock arrays
+```
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## 🛠️ Getting Started
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 1. Backend & Data Pipeline Setup
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Configure your Python environment and prepare the IEEE-CIS raw data:
 
-## Deploy on Vercel
+```bash
+# 1. Navigate to the dataset workbench
+cd dataset
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+# 2. Set up virtual environment and install dependencies
+python -m venv .venv
+.venv\Scripts\activate       # On Windows (cmd/powershell)
+source .venv/bin/activate    # On Unix/macOS
+pip install -r requirements.txt
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+# 3. Configure your Kaggle credentials (kaggle.json API token)
+# Standard location: ~/.kaggle/kaggle.json
+
+# 4. Download raw dataset from Kaggle
+python download.py
+
+# 5. Run the high-reliability dataset merger (produces merged_train.parquet)
+python build_merged_dataset.py
+
+# 6. Run the dynamic data audit (produces data_audit_report.md)
+python audit.py
+```
+
+### 2. Frontend Development Setup
+
+Run the Next.js development server to launch the Analyst dashboard:
+
+```bash
+# 1. Navigate to the frontend directory
+cd frontend
+
+# 2. Install packages
+npm install
+
+# 3. Start local development server
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) to view the AI Risk Sentinel console.
+
+---
+
+## 🔬 Core Data Guidelines
+
+To prevent common ML pipeline mistakes, this repository enforces the following practices:
+* **No Synthetic Fallback**: The database pipeline structures raw features directly from the source dataset. No mock fallback data is written.
+* **No Label Leakage**: The target label (`isFraud`) is strictly excluded from feature inputs, preserving separation between ground truth and simulated model scores.
+* **Correct Temporal Representation**: `TransactionDT` is treated as a relative offset in elapsed seconds from an anonymized reference point for relative-time feature engineering. It is not mapped to hardcoded calendar days.
+* **Entity Relationships**: User identities are not assumed using `card1`. The graph model explicitly maps separate nodes for payments (`CARD`), hardware configurations (`DEVICE`), and billing locations (`REGION`).

@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #090a0f;
+  --color-sidebar: #0d0f14;
+  --color-card: #11141a;
+  --color-elevated: #151922;
+  --color-border: #252a34;
+  
+  --color-text-primary: #f5f7fa;
+  --color-text-secondary: #9ca3af;
+
+  --color-risk-low: #10b981;
+  --color-risk-medium: #f59e0b;
+  --color-risk-high: #ef4444;
+  --color-risk-info: #3b82f6;
+  --color-risk-ai: #a855f7;
+
+  --font-sans: var(--font-sans), system-ui, sans-serif;
+}
+
+:root {
+  --background: #090a0f;
+  --foreground: #f5f7fa;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+}
+
+/* React Flow styles overrides for dark mode integration */
+.react-flow__renderer {
+  background-color: #090a0f !important;
+}
+
+.react-flow__node {
+  border-radius: 8px !important;
+}
+
+.react-flow__handle {
+  background-color: #252a34 !important;
+  border: 1px solid #9ca3af !important;
+}
+
+.react-flow__edge-path {
+  stroke: #252a34 !important;
+  stroke-width: 2 !important;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #a855f7 !important;
+}
+
+.react-flow__controls {
+  background-color: #11141a !important;
+  border: 1px solid #252a34 !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+}
+
+.react-flow__controls-button {
+  background-color: #11141a !important;
+  color: #f5f7fa !important;
+  border-bottom: 1px solid #252a34 !important;
+  fill: currentColor !important;
+}
+
+.react-flow__controls-button:hover {
+  background-color: #151922 !important;
+}
+
+.react-flow__attribution {
+  display: none !important;
+}
+
+/* Custom scrollbars for dashboard analytics aesthetics */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #090a0f;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #252a34;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
