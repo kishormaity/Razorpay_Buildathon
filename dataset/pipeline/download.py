@@ -5,7 +5,7 @@ import sys
 
 def download_dataset():
     # Setup project directories
-    current_dir = os.path.dirname(os.path.abspath(__file__))
+    current_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
     raw_dir = os.path.join(current_dir, 'data', 'raw')
     os.makedirs(raw_dir, exist_ok=True)
     

@@ -9,7 +9,7 @@ def run_audit():
     print("             IEEE-CIS DATASET COMPREHENSIVE AUDIT WORKBENCH            ")
     print("=" * 70)
     
-    current_dir = os.path.dirname(os.path.abspath(__file__))
+    current_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
     raw_dir = os.path.join(current_dir, 'data', 'raw')
     txn_path = os.path.join(raw_dir, "train_transaction.csv")
     id_path = os.path.join(raw_dir, "train_identity.csv")

@@ -2,7 +2,7 @@
 
 AI Risk Sentinel is an enterprise-grade platform for payment fraud detection, network-based abuse management, and machine learning model telemetry. 
 
-The platform integrates a dynamic Next.js-based analyst dashboard with a high-performance Python data workbench designed around the industry-standard **IEEE-CIS Fraud Detection** dataset.
+The platform integrates a dynamic Next.js-based analyst dashboard with a high-performance Python data workbench designed around the widely used **IEEE-CIS Fraud Detection** benchmark dataset, which contains 590,540 transactions with complementary transaction and identity information.
 
 ---
 
@@ -43,13 +43,12 @@ Razorpay_Build/
 ├── CLAUDE.md                 # Developer CLI command cheatsheet
 ├── AGENTS.md                 # Custom rules and guidelines
 ├── dataset/                  # Python Data Engineering Pipeline
-│   ├── download.py           # Kagglehub raw dataset downloader
-│   ├── audit.py              # Dynamic chunked data audit & report generator
-│   ├── build_merged_dataset.py # Validation-based transaction-identity merger
-│   ├── preprocess.py         # DB schema setup and SQLite compiler
-│   ├── schema.sql            # SQLite relational database schema
+│   ├── README.md             # Dataset workbench instructions
 │   ├── requirements.txt      # Python dependencies
-│   └── data/                 # Raw and processed files (Git-ignored)
+│   ├── pipeline/             # Data ingestion and preprocessing scripts
+│   ├── features/             # Feature engineering components
+│   ├── experiments/          # Model experiments and stacking benchmarks
+│   └── data/                 # Raw and structured processed datasets (Git-ignored)
 └── frontend/                 # Next.js TypeScript App
     ├── package.json          # Node dependencies
     ├── src/
@@ -81,13 +80,13 @@ pip install -r requirements.txt
 # Standard location: ~/.kaggle/kaggle.json
 
 # 4. Download raw dataset from Kaggle
-python download.py
+python pipeline/download.py
 
 # 5. Run the high-reliability dataset merger (produces merged_train.parquet)
-python build_merged_dataset.py
+python pipeline/build_merged_dataset.py
 
 # 6. Run the dynamic data audit (produces data_audit_report.md)
-python audit.py
+python pipeline/audit.py
 ```
 
 ### 2. Frontend Development Setup
@@ -106,6 +105,75 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) to view the AI Risk Sentinel console.
+
+---
+
+## 🧪 ML Modeling Pipeline & Leaderboard
+
+The Python data workbench includes a high-performance modeling pipeline that evaluates incremental feature groups and boosting algorithms under a chronological 80/20 train/validation split. The primary evaluation metric is **PR-AUC (Average Precision)** because the dataset is highly imbalanced, with approximately 3.499% fraudulent transactions (20,663 fraud cases out of 590,540 total transactions).
+
+### 📁 Model Progression
+* **Model A (Transaction-Only)**: The LightGBM transaction-only baseline model. **PR-AUC: `0.57181`**.
+* **Model B (Transaction + All Behavioral)**: LightGBM using transaction features plus all 12 rolling behavioral features. Performance decreased to **PR-AUC `0.54628`**, indicating that raw rolling window aggregates introduced noise when directly combined with transaction features.
+* **Model C (Transaction + Top-6 Behavioral)**: LightGBM using transaction features plus the six highest-ranked behavioral features. Achieved **PR-AUC `0.56722`**.
+* **Model D (Transaction + Historical)**: LightGBM using transaction + 10 leakage-free chronological historical features. This is currently the **best-performing model**, achieving **PR-AUC `0.58144`**.
+* **Model E (XGBoost Transaction + Historical)**: XGBoost version of Model D. Achieved **PR-AUC `0.55965`**.
+* **Model F (Transaction + Historical + Top-6 Behavioral)**: LightGBM combining transaction, historical, and the top-6 behavioral features. Achieved **PR-AUC `0.57394`**. Top behavioral features did not provide additional PR-AUC improvement when combined with the historical features in this LightGBM configuration.
+
+---
+
+### 📊 Comparative Leaderboard
+
+All Models A–F are evaluated using the same chronological validation split. PR-AUC is the primary metric.
+
+| Model Config | Algorithm | Features Included / Mode | PR-AUC (Primary) | ROC-AUC | Optimal F1 | FPR @ Optimal | Training Time | Best Iteration | Note |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **Model A** | LightGBM | Transaction-Only Baseline | `0.57181` | `0.91223` | `0.56645` | `0.00948` | `94.91s` | `831` | Baseline |
+| **Model B** | LightGBM | Transaction + All 12 Behavioral | `0.54628` | `0.90603` | `0.55230` | `0.00800` | `141.22s` | `393` | Overfitting noise |
+| **Model C** | LightGBM | Transaction + Top-6 Behavioral | `0.56722` | `0.91233` | `0.56120` | `0.00735` | `123.28s` | `378` | FPR reduction |
+| 🥇 **Model D** | **LightGBM** | **Transaction + Historical** | **`0.58144`** | `0.90507` | **`0.58178`** | **`0.00880`** | `119.27s` | `998` | **Pipeline Champion** |
+| **Model E** | XGBoost | Transaction + Historical | `0.55965` | `0.89799` | `0.56932` | `0.00943` | `413.15s` | `444` | Depth-first growth |
+| **Model F** | LightGBM | Transaction + Hist + Top-6 Behav | `0.57394` | `0.90275` | `0.57162` | `0.01005` | `77.35s` | `562` | Behavioral redundancy |
+| **LGBM Behavior** | LightGBM | 12 Behavioral Features Only | `0.08936` | `0.72475` | `0.17132` | `0.06985` | `5.98s` | `81` | Standalone benchmark |
+| **XGB Behavior** | XGBoost | 12 Behavioral Features Only | **`0.09396`** | `0.72462` | `0.17269` | `0.05659` | `10.37s` | `46` | Standalone winner |
+| **CatB Behavior** | CatBoost | 12 Behavioral Features Only | `0.09180` | `0.72463` | `0.17139` | `0.05942` | `32.43s` | `504` | Standalone benchmark |
+| **Weighted Fusion** | Linear | $w_{opt}=1.00$ (Tx-only weight) | `0.54831` | `0.90667` | `0.54939` | `0.01054` | `1.74s` | *N/A* | Meta-Test subset |
+| **Logistic Stack** | Logistic Reg | Tx Model + Behavioral Model | `0.54529` | `0.90729` | `0.54991` | `0.01052` | `1.74s` | *N/A* | Meta-Test subset |
+
+> **Note:** Fusion metrics were evaluated on the Meta-Test subset, so they should not be directly compared with the full validation metrics of Models A–F.
+
+---
+
+### 🔍 Key Scientific Insights & Takeaways
+
+1. **Tabular Champion (Model D)**:
+   * **PR-AUC**: **`0.58144`** (A relative improvement of **`+1.68%`** over the baseline Model A).
+   * **Optimal F1-Score**: **`0.58178`** (An absolute improvement of **`+0.01533`**).
+   * **FPR**: Reduced to **`0.00880`** (A **7.2% reduction in false positives**, reducing customer checkout friction by 77 occurrences).
+   * **Metrics Trade-off**: Model D significantly improves PR-AUC, F1, and FPR, but results in a slight decrease in ROC-AUC (`0.90507` vs. `0.91223`).
+2. **Expanding Chronological Encodings prevent Overfitting**:
+   * Rolling window aggregates (Model B/C/F) fluctuate rapidly and introduce high-frequency noise. This caused LightGBM to overfit on specific card records and trigger premature early stopping.
+   * In contrast, Model D leverages 10 **leakage-free expanding chronological target encodings and count frequencies** smoothed with Bayesian m-estimates. These features are highly stable and represent the global risk profile of entities. The model trained for **998 rounds** without overfitting, achieving our peak score.
+   * In Model D/F, `card_addr_combo_historical_fraud_rate` became the **#1 most important feature** by gain globally, surpassing raw card and address IDs.
+3. **Booster Growth Strategy Dynamics**:
+   * LightGBM's leaf-wise (best-first) tree growth is highly optimized for high-cardinality categorical tabular datasets. It outpaced XGBoost Model E by **`+0.02179`** in PR-AUC and trained **3.5x faster** (119s vs. 413s). XGBoost's level-wise (depth-first) growth strategy overfit on features early, triggering premature early stopping.
+4. **Behavioral Redundancy**:
+   * Combining historical features and behavioral features in Model F degraded PR-AUC to `0.57394` (down `-0.00750` from Model D). The stable chronological features render rolling behavioral windows redundant and noisy in this configuration.
+
+---
+
+## 🏆 Current Best Model
+
+**Model D — LightGBM Transaction + Historical Features**
+
+- Algorithm: **LightGBM**
+- Feature space: **403 model features** (393 transaction + 4 historical frequency + 6 Bayesian-smoothed fraud-rate features)
+- PR-AUC: **`0.58144`**
+- ROC-AUC: `0.90507`
+- Optimal F1: **`0.58178`**
+- FPR @ Optimal: **`0.00880`**
+
+Model D currently provides the highest PR-AUC and optimal F1 balance among all evaluated configurations.
 
 ---
 

@@ -9,7 +9,7 @@ def main():
     print("          IEEE-CIS DATASET MERGE & PARQUET BUILDER")
     print("=" * 70)
 
-    current_dir = os.path.dirname(os.path.abspath(__file__))
+    current_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
     raw_dir = os.path.join(
         current_dir,
@@ -35,12 +35,12 @@ def main():
 
     output_path = os.path.join(
         processed_dir,
-        "merged_train.parquet"
+        "features/merged_train.parquet"
     )
 
     metadata_path = os.path.join(
         processed_dir,
-        "merge_metadata.json"
+        "metadata/merge_metadata.json"
     )
 
     # ---------------------------------------------------------

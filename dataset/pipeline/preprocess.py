@@ -144,10 +144,11 @@ def process_real_dataset(raw_dir, conn):
     return True
 
 def preprocess():
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    raw_dir = os.path.join(current_dir, 'data', 'raw')
-    db_path = os.path.join(current_dir, 'data', 'processed', 'risk_sentinel.db')
-    schema_path = os.path.join(current_dir, 'schema.sql')
+    # For data paths, look one level up since this script is in dataset/pipeline/
+    parent_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+    raw_dir = os.path.join(parent_dir, 'data', 'raw')
+    db_path = os.path.join(parent_dir, 'data', 'processed', 'risk_sentinel.db')
+    schema_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'schema.sql')
     
     # Initialize DB
     conn = setup_db(db_path, schema_path)

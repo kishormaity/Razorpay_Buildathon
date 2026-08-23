@@ -1,0 +1,15 @@
+{
+  "source_transaction_file": "C:\\Users\\BIT\\Downloads\\Razorpay_Build\\dataset\\data\\raw\\train_transaction.csv",
+  "source_identity_file": "C:\\Users\\BIT\\Downloads\\Razorpay_Build\\dataset\\data\\raw\\train_identity.csv",
+  "output_file": "C:\\Users\\BIT\\Downloads\\Razorpay_Build\\dataset\\data\\processed\\merged_train.parquet",
+  "transaction_rows": 590540,
+  "identity_rows": 144233,
+  "merged_rows": 590540,
+  "merged_columns": 434,
+  "identity_matches": 144233,
+  "identity_match_rate_pct": 24.424,
+  "fraud_cases": 20663,
+  "fraud_rate_pct": 3.499,
+  "parquet_size_mb": 80.82,
+  "created_at": "2026-08-24 01:14:51"
+}
