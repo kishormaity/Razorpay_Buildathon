@@ -1,6 +1,6 @@
 # Large data files and directories
-dataset/data/raw/
-dataset/data/processed/models/*.json
+backend/data/raw/
+backend/data/processed/models/*.json
 *.zip
 *.csv
 *.parquet

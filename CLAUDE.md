@@ -8,5 +8,7 @@ Please refer to [AGENTS.md](file:///c:/Users/BIT/Downloads/Razorpay_Build/AGENTS
 ## Primary Commands
 * **Launch Frontend Dev Server:** `cd frontend; npm run dev`
 * **Build Frontend Production Bundle:** `cd frontend; npm run build`
-* **Acquire Dataset (Kagglehub):** `.venv\Scripts\python dataset\download.py`
-* **Preprocess & Structure SQL Database:** `.venv\Scripts\python dataset\preprocess.py`
+* **Acquire Dataset (Kagglehub):** `.venv\Scripts\python backend\pipeline\download.py`
+* **Preprocess & Structure SQL Database:** `.venv\Scripts\python backend\pipeline\preprocess.py`
+* **Train and Freeze Models:** `.venv\Scripts\python backend\experiments\train_final_models.py`
+* **Launch Inference Server:** `.venv\Scripts\python backend\experiments\sentinel_app.py`

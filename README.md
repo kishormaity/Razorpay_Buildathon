@@ -42,13 +42,13 @@ Razorpay_Build/
 ├── README.md                 # Root platform documentation
 ├── CLAUDE.md                 # Developer CLI command cheatsheet
 ├── AGENTS.md                 # Custom rules and guidelines
-├── dataset/                  # Python Data Engineering Pipeline
-│   ├── README.md             # Dataset workbench instructions
+├── backend/                  # Python Data Engineering Pipeline & API Server
+│   ├── README.md             # Backend pipeline instructions
 │   ├── requirements.txt      # Python dependencies
 │   ├── pipeline/             # Data ingestion and preprocessing scripts
 │   ├── features/             # Feature engineering components
-│   ├── experiments/          # Model experiments and stacking benchmarks
-│   └── data/                 # Raw and structured processed datasets (Git-ignored)
+│   ├── experiments/          # Model experiments, training scripts, and FastAPI app
+│   └── data/                 # Raw and processed datasets (Git-ignored)
 └── frontend/                 # Next.js TypeScript App
     ├── package.json          # Node dependencies
     ├── src/
@@ -67,8 +67,8 @@ Razorpay_Build/
 Configure your Python environment and prepare the IEEE-CIS raw data:
 
 ```bash
-# 1. Navigate to the dataset workbench
-cd dataset
+# 1. Navigate to the backend workbench
+cd backend
 
 # 2. Set up virtual environment and install dependencies
 python -m venv .venv
@@ -177,6 +177,69 @@ Model D currently provides the highest PR-AUC and optimal F1 balance among all e
 
 ---
 
+## 🛡️ Standalone Abuse-Ring Sentinel Layer
+
+To address coordinated network-based exploits that bypass transaction-level models, we integrated a secondary review routing overlay:
+> **The Abuse-Ring Sentinel identifies transactions exhibiting coordinated multi-entity risk patterns using a chronological weak-supervision proxy.**
+
+### 1. Two-Layer Operational Workflow
+Rather than blending risk scores, which dilutes automated checkout precision, the pipeline implements a modular routing topology:
+
+```text
+                  Incoming Transaction
+                           │
+                           ▼
+                    [ Model D GBDT ]
+                     Threshold 0.30
+                           │
+             ┌─────────────┴─────────────┐
+             ▼                           ▼
+          [ BLOCK ]                   [ ALLOW ]
+       (score >= 0.30)            (score < 0.30)
+                                         │
+                                         ▼
+                               [ Sentinel Check ]
+                                 Threshold 0.15
+                                         │
+                           ┌─────────────┴─────────────┐
+                           ▼                           ▼
+                       [ REVIEW ]                  [ APPROVE ]
+                    (score >= 0.15)             (score < 0.15)
+```
+
+---
+
+### 2. Locked Final Test Set Metrics
+
+The Sentinel was evaluated once on the strictly locked chronological Test split (last 15% of transactions), delivering these results:
+
+| Evaluation Dimension | Final Test Split Result |
+| :--- | :---: |
+| **Sentinel Review Population Share** | **`9.90%`** (8,773 transactions) |
+| **Model D Missed Fraud (FNs) Total** | **`1,647`** cases |
+| **Sentinel-Captured FNs** | **`201`** cases |
+| **Missed Fraud (FN) Capture Rate (%)** | **`12.20%`** |
+| **Fraud Count in Reviewed Set** | **`426`** cases |
+| **FN Capture Efficiency** | **`1.23x`** |
+
+*By capturing 12.20% of Model D's missed fraud while reviewing only 9.90% of transactions, the Sentinel routes risk with **1.23x** efficiency compared to random selection.*
+
+---
+
+## 🚀 Final Submission Reproducibility
+
+To run the pipeline replication and launch the interactive scenario demo, execute:
+
+```powershell
+# 1. Run final validation report replication
+.venv\Scripts\python backend/experiments/validate_sentinel_routing.py
+
+# Run the sentinel demo visualization
+.venv\Scripts\python backend/experiments/sentinel_demo.py
+```
+
+---
+
 ## 🔬 Core Data Guidelines
 
 To prevent common ML pipeline mistakes, this repository enforces the following practices:
@@ -184,3 +247,4 @@ To prevent common ML pipeline mistakes, this repository enforces the following p
 * **No Label Leakage**: The target label (`isFraud`) is strictly excluded from feature inputs, preserving separation between ground truth and simulated model scores.
 * **Correct Temporal Representation**: `TransactionDT` is treated as a relative offset in elapsed seconds from an anonymized reference point for relative-time feature engineering. It is not mapped to hardcoded calendar days.
 * **Entity Relationships**: User identities are not assumed using `card1`. The graph model explicitly maps separate nodes for payments (`CARD`), hardware configurations (`DEVICE`), and billing locations (`REGION`).
+
