@@ -1,0 +1,7 @@
+{
+  "optimal_threshold": 0.51,
+  "fp_cost": 1500.0,
+  "chargeback_fee": 1200.0,
+  "brier_score": 0.03167498149859839,
+  "ece": 0.014987219936919469
+}

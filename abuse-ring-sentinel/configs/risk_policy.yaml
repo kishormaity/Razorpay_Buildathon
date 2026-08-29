@@ -1,0 +1,32 @@
+# Expected Cost and Decision Engine Configurations
+
+policy:
+  thresholds:
+    allow: 30       # Risk score <= 30
+    monitor: 60     # 30 < Risk score <= 60
+    review: 80      # 60 < Risk score <= 80
+    critical: 90    # Risk score > 90 (Hold/Block)
+  
+  actions:
+    allow: "ALLOW"
+    monitor: "MONITOR"
+    review: "MANUAL_REVIEW"
+    critical: "HOLD"
+
+cost_matrix:
+  # Business loss parameter settings
+  fp_cost: 1500.0         # Cost of customer checkout friction (False Positive)
+  chargeback_fee: 1200.0   # Fixed fee for chargeback execution
+  investigation_cost: 500.0 # SLA analyst verification overhead cost
+  fn_loss_factor: 1.0     # Multiplier on transaction amount for missed fraud (False Negative)
+
+ring_scoring:
+  # Leiden candidate group weight parameters
+  weights:
+    w_relationship: 0.35
+    w_temporal: 0.25
+    w_behavioral: 0.20
+    w_financial: 0.20
+  
+  # Confidence threshold to flag coordinate community as an Abuse Ring
+  abuse_threshold: 0.70

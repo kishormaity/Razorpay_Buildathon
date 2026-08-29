@@ -1,0 +1,54 @@
+# Feature Store Definition Config
+
+transaction_features:
+  - "TransactionAmt"
+  - "ProductCD"
+  - "card1"
+  - "card2"
+  - "card3"
+  - "card4"
+  - "card5"
+  - "card6"
+  - "addr1"
+  - "addr2"
+  - "dist1"
+  - "dist2"
+  - "P_emaildomain"
+  - "R_emaildomain"
+
+behavioral_features:
+  - "amount_vs_card_mean"
+  - "amount_vs_card_median"
+  - "amount_zscore"
+  - "tx_frequency_deviation_24h"
+  - "tx_frequency_deviation_1h"
+
+temporal_features:
+  - "time_gap_deviation_median"
+  - "time_gap_deviation_mean"
+  - "time_gap_acceleration_median"
+  - "time_gap_acceleration_mean"
+
+graph_features:
+  # NetworkX topological attributes
+  - "card_device_degree"
+  - "card_addr_degree"
+  - "device_card_degree"
+  - "addr_card_degree"
+  - "shared_device_card_count"
+  - "shared_addr_card_count"
+  - "pagerank_centrality"
+  - "betweenness_centrality"
+  - "clustering_coefficient"
+  - "two_hop_neighbor_count"
+
+ring_features:
+  # Leiden candidate community attributes
+  - "device_unique_card_count"
+  - "addr_unique_card_count"
+  - "email_unique_card_count"
+  - "device_connected_fraud_rate"
+  - "addr_connected_fraud_rate"
+  - "rapid_card_convergence"
+  - "cross_entity_convergence"
+  - "ring_fraud_density"

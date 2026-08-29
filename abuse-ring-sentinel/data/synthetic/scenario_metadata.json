@@ -1,0 +1,135 @@
+[
+  {
+    "scenario_id": "RING_A_DEVICE_SHARE",
+    "scenario_type": "SHARED_DEVICE",
+    "member_accounts": [
+      "SYN-A-USR-01",
+      "SYN-A-USR-02",
+      "SYN-A-USR-03",
+      "SYN-A-USR-04",
+      "SYN-A-USR-05",
+      "SYN-A-USR-06",
+      "SYN-A-USR-07",
+      "SYN-A-USR-08",
+      "SYN-A-USR-09",
+      "SYN-A-USR-10",
+      "SYN-A-USR-11",
+      "SYN-A-USR-12",
+      "SYN-A-USR-13",
+      "SYN-A-USR-14",
+      "SYN-A-USR-15",
+      "SYN-A-USR-16",
+      "SYN-A-USR-17",
+      "SYN-A-USR-18",
+      "SYN-A-USR-19",
+      "SYN-A-USR-20"
+    ],
+    "shared_devices": [
+      "SYN-A-DEV-99"
+    ],
+    "shared_ips": [
+      "SYN-A-IP-99"
+    ],
+    "shared_payment_instruments": [],
+    "start_time": "2026-06-01T10:00:00Z",
+    "end_time": "2026-06-01T10:40:00Z"
+  },
+  {
+    "scenario_id": "RING_B_IP_SHARE",
+    "scenario_type": "SHARED_IP",
+    "member_accounts": [
+      "SYN-B-USR-01",
+      "SYN-B-USR-02",
+      "SYN-B-USR-03",
+      "SYN-B-USR-04",
+      "SYN-B-USR-05",
+      "SYN-B-USR-06",
+      "SYN-B-USR-07",
+      "SYN-B-USR-08",
+      "SYN-B-USR-09",
+      "SYN-B-USR-10",
+      "SYN-B-USR-11",
+      "SYN-B-USR-12",
+      "SYN-B-USR-13",
+      "SYN-B-USR-14",
+      "SYN-B-USR-15"
+    ],
+    "shared_devices": [],
+    "shared_ips": [
+      "SYN-B-IP-88"
+    ],
+    "shared_payment_instruments": [],
+    "start_time": "2026-06-01T10:00:00Z",
+    "end_time": "2026-06-01T10:45:00Z"
+  },
+  {
+    "scenario_id": "RING_C_PAYMENT_REUSE",
+    "scenario_type": "PAYMENT_REUSE",
+    "member_accounts": [
+      "SYN-C-USR-01",
+      "SYN-C-USR-02",
+      "SYN-C-USR-03",
+      "SYN-C-USR-04",
+      "SYN-C-USR-05",
+      "SYN-C-USR-06",
+      "SYN-C-USR-07",
+      "SYN-C-USR-08",
+      "SYN-C-USR-09",
+      "SYN-C-USR-10"
+    ],
+    "shared_devices": [],
+    "shared_ips": [],
+    "shared_payment_instruments": [
+      "SYN-C-PMT-77"
+    ],
+    "start_time": "2026-06-01T10:00:00Z",
+    "end_time": "2026-06-01T10:50:00Z"
+  },
+  {
+    "scenario_id": "RING_D_TEMPORAL_BURST",
+    "scenario_type": "TEMPORAL_BURST",
+    "member_accounts": [
+      "SYN-D-USR-01",
+      "SYN-D-USR-02",
+      "SYN-D-USR-03",
+      "SYN-D-USR-04",
+      "SYN-D-USR-05"
+    ],
+    "shared_devices": [],
+    "shared_ips": [],
+    "shared_payment_instruments": [],
+    "start_time": "2026-06-01T10:00:00Z",
+    "end_time": "2026-06-01T10:00:30Z"
+  },
+  {
+    "scenario_id": "RING_E_HYBRID_OVERLAP",
+    "scenario_type": "HYBRID",
+    "member_accounts": [
+      "SYN-E-USR-01",
+      "SYN-E-USR-02",
+      "SYN-E-USR-03",
+      "SYN-E-USR-04",
+      "SYN-E-USR-05",
+      "SYN-E-USR-06",
+      "SYN-E-USR-07",
+      "SYN-E-USR-08",
+      "SYN-E-USR-09",
+      "SYN-E-USR-10",
+      "SYN-E-USR-11",
+      "SYN-E-USR-12"
+    ],
+    "shared_devices": [
+      "SYN-E-DEV-1",
+      "SYN-E-DEV-2"
+    ],
+    "shared_ips": [
+      "SYN-E-IP-1",
+      "SYN-E-IP-2"
+    ],
+    "shared_payment_instruments": [
+      "SYN-E-PMT-SHARED"
+    ],
+    "start_time": "2026-06-01T10:00:00Z",
+    "end_time": "2026-06-01T10:48:00Z"
+  }
+]

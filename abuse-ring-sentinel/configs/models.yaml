@@ -1,0 +1,47 @@
+# Machine Learning Model Parameters Configuration
+
+lightgbm:
+  objective: "binary"
+  metric: "average_precision"
+  boosting_type: "gbdt"
+  learning_rate: 0.05
+  num_leaves: 31
+  max_depth: -1
+  feature_fraction: 0.8
+  bagging_fraction: 0.8
+  bagging_freq: 1
+  scale_pos_weight: 1.0
+  random_state: 42
+  num_boost_round: 1000
+  early_stopping_rounds: 50
+
+graphsage:
+  embedding_dim: 64
+  hidden_channels: 128
+  learning_rate: 0.01
+  epochs: 50
+  batch_size: 256
+  dropout: 0.5
+  num_layers: 2
+
+node2vec:
+  embedding_dim: 64
+  walk_length: 20
+  context_size: 10
+  walks_per_node: 10
+  p: 1.0
+  q: 1.0
+
+isolation_forest:
+  n_estimators: 100
+  contamination: "auto"
+  random_state: 42
+
+risk_fusion:
+  # Initial starting weights, to be tuned during Phase 12
+  weights:
+    w_gbm: 0.35
+    w_gnn: 0.30
+    w_anomaly: 0.10
+    w_ring: 0.25
+  calibration_method: "platt" # Platt scaling or Isotonic

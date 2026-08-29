@@ -1,0 +1,26 @@
+# Data Pipeline and Storage Configuration
+
+database:
+  db_path: "data/processed/risk_sentinel.db"
+  schema_path: "src/data/schema.sql"
+
+paths:
+  raw_dir: "../ai-risk-sentinel-baseline/data-pipeline/data/raw"
+
+
+
+  processed_dir: "data/processed"
+  synthetic_dir: "data/synthetic"
+  models_dir: "models"
+
+splits:
+  # Using chronological split ratios
+  train_ratio: 0.70
+  val_ratio: 0.15
+  test_ratio: 0.15
+  random_state: 42
+
+evaluation:
+  # Held-out testing configuration
+  locked_test: true
+  cost_sensitive: true
