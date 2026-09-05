@@ -2,6 +2,8 @@ import os
 import sys
 import time
 import json
+import logging
+from contextlib import asynccontextmanager
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
@@ -10,6 +12,16 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import uvicorn
+
+# Configure structured logging
+logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logger = logging.getLogger("ai_risk_sentinel")
+
+# Add data-pipeline root to sys.path for risk_engine
+current_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+if current_dir not in sys.path:
+    sys.path.append(current_dir)
+from pipeline.risk_engine import make_decision, explain_risk, load_calibrator
 
 # -------------------------------------------------------------
 # 1. Model & Data Helper Functions
@@ -20,16 +32,12 @@ def is_valid_device(dev):
 def is_valid_addr(a):
     return not pd.isna(a) and a != -999 and a != -999.0
 
-# Initialize FastAPI App
-app = FastAPI(title="Abuse-Ring Sentinel Interactive Portal")
-
 # Globals to hold models and datasets
 db = {}
 
-@app.on_event("startup")
-def startup_event():
-    print("Loading models and feature names...")
-    current_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Initializing AI Risk Sentinel Portal...")
     processed_dir = os.path.join(current_dir, 'data', 'processed')
     features_path = os.path.join(processed_dir, 'features/abuse_ring_features.parquet')
     models_dir = os.path.join(current_dir, 'models')
@@ -41,7 +49,7 @@ def startup_event():
         with open(os.path.join(models_dir, 'sentinel_features.json'), 'r') as f:
             ring_features = json.load(f)
     except FileNotFoundError:
-        print("[ERROR] Feature configuration JSON files not found. Run train_final_models.py first.")
+        logger.error("Feature configuration JSON files not found. Run train_final_models.py first.")
         sys.exit(1)
 
     # Load frozen model boosters
@@ -49,41 +57,61 @@ def startup_event():
     sentinel_path = os.path.join(models_dir, 'abuse_ring_sentinel_final.txt')
     
     if not os.path.exists(model_d_path) or not os.path.exists(sentinel_path):
-        print("[ERROR] Saved LightGBM boosters not found. Run train_final_models.py first.")
+        logger.error("Saved LightGBM boosters not found. Run train_final_models.py first.")
         sys.exit(1)
         
-    print("Loading Model D............. ", end="")
+    logger.info("Loading Model D booster...")
     model_d = lgb.Booster(model_file=model_d_path)
-    print("OK")
     
-    print("Loading Sentinel............ ", end="")
+    logger.info("Loading Abuse-Ring Sentinel booster...")
     model_sentinel = lgb.Booster(model_file=sentinel_path)
-    print("OK")
+
+    # Operating thresholds
+    threshold_block = 0.30398
+    threshold_review = 0.15000
+    thresholds_path = os.path.join(models_dir, 'thresholds.json')
+    if os.path.exists(thresholds_path):
+        with open(thresholds_path, 'r') as f:
+            th_cfg = json.load(f)
+            threshold_block = th_cfg.get('threshold_block', threshold_block)
+            threshold_review = th_cfg.get('threshold_review', threshold_review)
+        logger.info("Loaded operating thresholds: BLOCK >= %.5f | REVIEW >= %.5f", threshold_block, threshold_review)
 
     if not os.path.exists(features_path):
-        print(f"[ERROR] Features file not found at: {features_path}")
+        logger.error("Features file not found at: %s", features_path)
         sys.exit(1)
 
-    # Load lightweight history for dynamic O(1) calculations
-    print("Loading history index....... ", end="")
-    cols_history = ['TransactionID', 'TransactionAmt', 'card1', 'P_emaildomain', 'DeviceInfo', 'addr1', 'isFraud', 'TransactionDT']
-    history_df = pd.read_parquet(features_path, columns=cols_history)
-    history_df = history_df.sort_values(['TransactionDT', 'TransactionID']).reset_index(drop=True)
-    
-    # Pre-index device, address, and email networks to achieve O(1) leakage-free historical query times
+    # Single-pass loading of dataset
+    logger.info("Loading dataset from %s (single-pass)...", features_path)
+    t0 = time.time()
+    df = pd.read_parquet(features_path)
+    df = df.sort_values(['TransactionDT', 'TransactionID']).reset_index(drop=True)
+    logger.info("Loaded %d rows in %.2f seconds.", len(df), time.time() - t0)
+
+    # Ensure stationary cyclical time features are present
+    if 'hour_of_day' not in df.columns:
+        logger.info("Deriving stationary cyclical time features...")
+        df['hour_of_day'] = ((df['TransactionDT'] // 3600) % 24).astype('float32')
+        df['day_of_week'] = ((df['TransactionDT'] // 86400) % 7).astype('float32')
+        df['hour_sin'] = np.sin(2 * np.pi * (df['TransactionDT'] % 86400) / 86400).astype('float32')
+        df['hour_cos'] = np.cos(2 * np.pi * (df['TransactionDT'] % 86400) / 86400).astype('float32')
+        df['day_of_week_sin'] = np.sin(2 * np.pi * ((df['TransactionDT'] // 86400) % 7) / 7).astype('float32')
+        df['day_of_week_cos'] = np.cos(2 * np.pi * ((df['TransactionDT'] // 86400) % 7) / 7).astype('float32')
+
+    # Build historical look-back index directly from loaded df
+    logger.info("Building historical look-back network index...")
     device_index = {}
     addr_index = {}
     email_index = {}
 
-    for row in history_df.itertuples(index=False):
-        # Device Network
+    cols_history = ['TransactionID', 'TransactionAmt', 'card1', 'P_emaildomain', 'DeviceInfo', 'addr1', 'isFraud', 'TransactionDT']
+    for row in df[cols_history].itertuples(index=False):
         dev = row.DeviceInfo
         if is_valid_device(dev):
             if dev not in device_index:
                 device_index[dev] = []
             device_index[dev].append(row)
         
-        # Address Network
         addr = row.addr1
         if is_valid_addr(addr):
             addr_val = int(float(addr))
@@ -91,34 +119,20 @@ def startup_event():
                 addr_index[addr_val] = []
             addr_index[addr_val].append(row)
             
-        # Email Network
         email = row.P_emaildomain
         if not pd.isna(email) and email != '':
             if email not in email_index:
                 email_index[email] = []
             email_index[email].append(row)
 
-    print("OK")
-
-    # Load the entire dataset features to support looking up any transaction ID
-    print("Loading full dataset........ ", end="")
-    df = pd.read_parquet(features_path)
-    df = df.sort_values(['TransactionDT', 'TransactionID']).reset_index(drop=True)
-    print("OK")
-
-    # Generate baseline predictions for full dataframe
-    print("Generating predictions...... ", end="")
-    probs_d = model_d.predict(df[base_features])
-    probs_sentinel = model_sentinel.predict(df[ring_features])
-    df['prob_d'] = probs_d
-    df['prob_sentinel'] = probs_sentinel
-    print("OK")
+    logger.info("Pre-indexing completed: %d devices, %d addrs, %d emails.", len(device_index), len(addr_index), len(email_index))
 
     # Select 30 key features for the inspection drawer
     all_key_candidates = [
         'TransactionAmt', 'card1', 'card2', 'card3', 'card5', 'addr1', 'addr2', 'dist1', 'dist2',
         'C1', 'C2', 'C11', 'C12', 'C13', 'C14', 'D1', 'D2', 'D4', 'D10', 'D15',
-        'V12', 'V13', 'V35', 'V36', 'V53', 'V54', 'V75', 'V76', 'V130', 'V131', 'V307', 'V308'
+        'V12', 'V13', 'V35', 'V36', 'V53', 'V54', 'V75', 'V76', 'V130', 'V131', 'V307', 'V308',
+        'hour_of_day', 'day_of_week'
     ]
     key_features = [f for f in all_key_candidates if f in base_features]
 
@@ -126,21 +140,24 @@ def startup_event():
     db['df'] = df
     db['model_d'] = model_d
     db['model_sentinel'] = model_sentinel
+    db['threshold_block'] = threshold_block
+    db['threshold_review'] = threshold_review
     db['base_features'] = base_features
     db['ring_features'] = ring_features
     db['key_features'] = key_features
-    # Vectorized fast O(0.1s) mapping of TransactionID to row index with Python int keys
     db['tx_map'] = {int(tid): int(idx) for tid, idx in zip(df['TransactionID'], df.index)}
-    db['default_tx_id'] = 3489013 # Hero case TransactionID
+    db['default_tx_id'] = 3489013  # Hero case TransactionID
     db['device_index'] = device_index
     db['addr_index'] = addr_index
     db['email_index'] = email_index
-    
-    print("\n========================================")
-    print("   ABUSE-RING SENTINEL READY (DEMO A)")
-    print("========================================")
-    print("   http://127.0.0.1:8000")
-    print("========================================\n")
+
+    logger.info("AI Risk Sentinel Portal is ready at http://127.0.0.1:8000")
+    yield
+    db.clear()
+    logger.info("AI Risk Sentinel shutdown complete.")
+
+# Initialize FastAPI App with Lifespan
+app = FastAPI(title="AI Risk Sentinel — Merchant Fraud Loss Prevention Portal", lifespan=lifespan)
 
 # -------------------------------------------------------------
 # 2. REST API Routes
@@ -219,12 +236,7 @@ def analyze_transaction(req: AnalyzeRequest):
         device_match = req_device.lower() == orig_device.lower()
         address_match = abs(req.address - orig_address) < 0.01
         
-        print(f"DEBUG MATCH FOR TX {tx_id}:")
-        print(f"  Amount: req={req.amount}, orig={orig_amount}, round_orig={int(orig_amount + 0.5)}, match={amount_match}")
-        print(f"  Card ID: req={req.card1}, orig={orig_card}, match={card_match}")
-        print(f"  Email: req='{req_email}', orig='{orig_email}', match={email_match}")
-        print(f"  Device: req='{req_device}', orig='{orig_device}', match={device_match}")
-        print(f"  Address: req={req.address}, orig={orig_address}, match={address_match}")
+        logger.debug("Verifying transaction %d against stored record", tx_id)
         
         if amount_match and card_match and email_match and device_match and address_match:
             verified = True
@@ -239,12 +251,21 @@ def analyze_transaction(req: AnalyzeRequest):
             verified = False
             warning = f"⚠ {', '.join(mismatched_fields).upper()} DOES NOT MATCH STORED TRANSACTION"
 
-    # Evaluate using the authentic stored feature vector
-    pred_d = float(model_d.predict(single_row_df[base_features])[0])
+    # Evaluate using the authentic stored feature vector (strictly model prediction)
+    raw_d = float(model_d.predict(single_row_df[base_features])[0])
+    pred_d = raw_d
     pred_sentinel = float(model_sentinel.predict(single_row_df[ring_features])[0])
     
     row_res = single_row_df.iloc[0]
     current_dt = int(row_res['TransactionDT'])
+    
+    threshold_block = db.get('threshold_block', 0.30398)
+    threshold_review = db.get('threshold_review', 0.15000)
+
+    # Server-Side Decision Engine & Deterministic Risk Signal Generation
+    row_dict = row_res.to_dict()
+    model_decision = make_decision(pred_d, pred_sentinel, threshold_block=threshold_block, threshold_review=threshold_review)
+    risk_signals = explain_risk(row_dict, pred_d, pred_sentinel, threshold_block=threshold_block, threshold_review=threshold_review)
     
     # -------------------------------------------------------------
     # 3. Dynamic Chronological Network Auditing
@@ -316,6 +337,17 @@ def analyze_transaction(req: AnalyzeRequest):
         'device': device_name if device_name else 'iOS Device',
         'address': addr_val if addr_val else 299,
         
+        # Server-Side Risk Decisions & Explainability
+        'model_risk_score': pred_d,
+        'raw_model_d_score': raw_d,
+        'model_decision': model_decision,
+        'risk_signals': risk_signals,
+        'sentinel_risk_score': pred_sentinel,
+        'ground_truth_is_fraud': int(row_res['isFraud']),
+        'threshold_block': threshold_block,
+        'threshold_review': threshold_review,
+
+        # Backward compatibility aliases
         'prob_d': pred_d,
         'prob_sentinel': pred_sentinel,
         'isFraud': int(row_res['isFraud']),
@@ -352,18 +384,25 @@ def analyze_transaction(req: AnalyzeRequest):
         'overlap_cards': overlap_cards[:50],
         'cross_entity_convergence': 'YES' if len(overlap_cards) > 0 else 'NO',
         
-        # Sentinel raw model feature checklist values
+        # Sentinel raw model feature checklist values (7 active features)
         'sentinel_features': {
-            'device_unique_card_count': safe_int(row_res['device_unique_card_count']),
-            'addr_unique_card_count': safe_int(row_res['addr_unique_card_count']),
-            'email_unique_card_count': safe_int(row_res['email_unique_card_count']),
-            'device_connected_fraud_rate': safe_float(row_res['device_connected_fraud_rate']),
-            'addr_connected_fraud_rate': safe_float(row_res['addr_connected_fraud_rate']),
-            'rapid_card_convergence': safe_int(row_res['rapid_card_convergence']),
-            'cross_entity_convergence': 'YES' if safe_float(row_res['cross_entity_convergence']) > 0 else 'NO',
-            'ring_fraud_density': safe_float(row_res['ring_fraud_density'])
+            'device_unique_card_count': safe_int(row_res.get('device_unique_card_count', 0)),
+            'addr_unique_card_count': safe_int(row_res.get('addr_unique_card_count', 0)),
+            'email_unique_card_count': safe_int(row_res.get('email_unique_card_count', 0)),
+            'device_connected_fraud_rate': safe_float(row_res.get('device_connected_fraud_rate', 0.0)),
+            'addr_connected_fraud_rate': safe_float(row_res.get('addr_connected_fraud_rate', 0.0)),
+            'rapid_card_convergence': safe_int(row_res.get('rapid_card_convergence', 0)),
+            'cross_entity_convergence': 'YES' if safe_float(row_res.get('cross_entity_convergence', 0.0)) > 0 else 'NO'
         }
     }
+
+@app.get("/api/metrics/merchant-impact")
+def get_merchant_impact():
+    metrics_path = os.path.join(current_dir, 'models', 'test_metrics.json')
+    if os.path.exists(metrics_path):
+        with open(metrics_path, 'r') as f:
+            return json.load(f)
+    raise HTTPException(status_code=404, detail="Test metrics not found. Run train_final_models.py first.")
 
 # -------------------------------------------------------------
 # 3. HTML/JS Page serving
@@ -429,7 +468,7 @@ def index():
 
             .main-container {
                 max-width: 1400px;
-                margin: 2rem auto;
+                margin: 1.5rem auto 2rem auto;
                 padding: 0 1.5rem;
                 display: grid;
                 grid-template-columns: 1fr 2fr;
@@ -885,10 +924,10 @@ def index():
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2.5">
                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
                 </svg>
-                <h1>Abuse-Ring Sentinel</h1>
+                <h1>AI Risk Sentinel</h1>
             </div>
             <div style="font-size: 0.85rem; color: var(--text-secondary); font-weight: 600;">
-                DEMO A: VERIFIABLE INFERENCE AUDIT PORTAL
+                MERCHANT LOSS PREVENTION &bull; FRAUD DETECTION & VERIFICATION
             </div>
         </header>
 
@@ -901,9 +940,9 @@ def index():
                     <input type="number" id="tx-id" value="3489013" oninput="triggerLookup(this.value)">
                     <div class="hint-text">
                         Try Test IDs: 
-                        <span class="hint-link" onclick="loadTxId(3489013)">3489013 (Hero)</span>, 
+                        <span class="hint-link" onclick="loadTxId(3489013)">3489013 (Hero Abuse Ring)</span>, 
                         <span class="hint-link" onclick="loadTxId(3577526)">3577526 (Blocked)</span>, 
-                        <span class="hint-link" onclick="loadTxId(3577531)">3577531 (Approved)</span>
+                        <span class="hint-link" onclick="loadTxId(3577531)">3577531 (Allowed)</span>
                     </div>
                 </div>
 
@@ -913,7 +952,7 @@ def index():
                 </div>
 
                 <div class="form-group">
-                    <label>Transaction Amount (₹)</label>
+                    <label>Transaction Amount ($ / ₹)</label>
                     <input type="number" id="amount-input" value="200" oninput="checkInputMatch()">
                 </div>
 
@@ -932,7 +971,7 @@ def index():
                     <input type="number" id="address-input" value="299" oninput="checkInputMatch()">
                 </div>
 
-                <button class="analyze-btn" onclick="triggerAnalyze()">ANALYZE TRANSACTION</button>
+                <button class="analyze-btn" onclick="triggerAnalyze()">ANALYZE TRANSACTION RISK</button>
 
                 <h2 style="margin-top: 2rem;">Raw Verification Match</h2>
                 <div class="status-banner banner-match" id="verification-status">
@@ -958,7 +997,7 @@ def index():
                 <!-- Pathway Diagram -->
                 <div class="panel" style="margin-bottom: 1.5rem; background: rgba(22,27,38,0.5);">
                     <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom: 1rem; font-weight:600; text-transform:uppercase;">
-                        Pipeline Workflow Pathway
+                        Defense-in-Depth Pipeline Pathway
                     </div>
                     <div class="path-diagram">
                         <div class="node active" id="node-start">
@@ -969,21 +1008,21 @@ def index():
                         <div class="path-line" id="line-1"></div>
                         
                         <div class="node" id="node-model-d">
-                            <div class="node-title">Model D</div>
+                            <div class="node-title">Detector</div>
                             <span id="node-d-status">Scoring</span>
                         </div>
                         
                         <div class="path-line" id="line-2"></div>
                         
                         <div class="node" id="node-sentinel">
-                            <div class="node-title">Sentinel</div>
+                            <div class="node-title">Verifier</div>
                             <span id="node-sentinel-status">Scoring</span>
                         </div>
                         
                         <div class="path-line" id="line-3"></div>
                         
                         <div class="node" id="node-final">
-                            <div class="node-title">Final Action</div>
+                            <div class="node-title">Responder</div>
                             <span id="node-final-status">Pending</span>
                         </div>
                     </div>
@@ -992,29 +1031,29 @@ def index():
                 <!-- Area 1: Model D -->
                 <div class="sub-card">
                     <div class="sub-card-header">
-                        <span>MODEL D — INDIVIDUAL TRANSACTION RISK</span>
+                        <span>DETECTOR: MODEL D (PRIMARY RISK SCORE)</span>
                         <span class="decision-badge badge-allow" id="d-badge">ALLOW</span>
                     </div>
                     
                     <div class="metric-row">
-                        <span class="metric-name">403 feature vector size</span>
-                        <span class="metric-val" id="d-feat-count">403 ✓</span>
+                        <span class="metric-name">Feature vector size</span>
+                        <span class="metric-val" id="d-feat-count">408 ✓</span>
                     </div>
                     <div class="metric-row">
-                        <span class="metric-name">Missing features</span>
-                        <span class="metric-val">0 ✓</span>
+                        <span class="metric-name">Temporal integrity</span>
+                        <span class="metric-val" style="color:var(--accent-green);">No Raw TransactionDT ✓</span>
                     </div>
                     <div class="metric-row">
                         <span class="metric-name">Feature order compliance</span>
                         <span class="metric-val" style="color:var(--accent-green);">Verified ✓</span>
                     </div>
                     <div class="metric-row">
-                        <span class="metric-name">Model D Score</span>
-                        <span class="metric-val" id="d-score">0.00000</span>
+                        <span class="metric-name">Model D Risk Score</span>
+                        <span class="metric-val" id="d-score" style="color:var(--accent-blue);">0.00000</span>
                     </div>
                     <div class="metric-row">
-                        <span class="metric-name">Decision boundary</span>
-                        <span class="metric-val">0.30398</span>
+                        <span class="metric-name">Blocking threshold</span>
+                        <span class="metric-val" id="d-boundary">0.30398</span>
                     </div>
 
                     <div class="drawer-container">
@@ -1059,7 +1098,7 @@ def index():
                                 <span class="metric-val" id="audit-dev-fraud">0</span>
                             </div>
                             <div class="metric-row">
-                                <span class="metric-name">Fraud exposure exposure</span>
+                                <span class="metric-name">Fraud exposure rate</span>
                                 <span class="metric-val" id="audit-dev-exposure">0.00%</span>
                             </div>
                             <div class="metric-row">
@@ -1091,7 +1130,7 @@ def index():
                                 <span class="metric-val" id="audit-addr-fraud">0</span>
                             </div>
                             <div class="metric-row">
-                                <span class="metric-name">Fraud exposure exposure</span>
+                                <span class="metric-name">Fraud exposure rate</span>
                                 <span class="metric-val" id="audit-addr-exposure">0.00%</span>
                             </div>
                             <div class="metric-row">
@@ -1105,7 +1144,7 @@ def index():
                 <!-- Area 3: Abuse-Ring Sentinel -->
                 <div class="sub-card">
                     <div class="sub-card-header">
-                        <span>SECONDARY ABUSE-RING SENTINEL</span>
+                        <span>VERIFIER: SECONDARY ABUSE-RING SENTINEL</span>
                         <span class="decision-badge badge-approve" id="sentinel-badge">APPROVE</span>
                     </div>
 
@@ -1124,12 +1163,12 @@ def index():
                     </table>
 
                     <div class="metric-row">
-                        <span class="metric-name">Sentinel risk score</span>
+                        <span class="metric-name">Sentinel network risk score</span>
                         <span class="metric-val" id="sentinel-score">0.00000</span>
                     </div>
                     <div class="metric-row">
-                        <span class="metric-name">Review threshold</span>
-                        <span class="metric-val">0.15000</span>
+                        <span class="metric-name">Secondary review threshold</span>
+                        <span class="metric-val" id="sentinel-boundary">0.15000</span>
                     </div>
 
                     <div class="intersection-container">
@@ -1153,11 +1192,29 @@ def index():
                     </div>
                 </div>
 
-                <!-- Outcome Rationale -->
+                <!-- Area 4: Outcome Rationale & Risk Decisions -->
                 <div class="panel" style="border-left: 4px solid var(--accent-blue);" id="outcome-card">
-                    <h3 style="margin:0 0 0.5rem 0; font-size:1.05rem;" id="outcome-header">Awaiting Analysis...</h3>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+                        <h3 style="margin:0; font-size:1.05rem;" id="outcome-header">Awaiting Analysis...</h3>
+                        <span id="final-decision-badge" class="decision-badge badge-allow" style="font-size:0.85rem;">PENDING</span>
+                    </div>
                     <div style="font-size: 0.88rem; line-height: 1.5; color: var(--text-secondary);" id="outcome-rationale">
                         Enter or look up a transaction ID and click "Analyze" to see calculations.
+                    </div>
+
+                    <!-- Explainability: Deterministic Risk Signals -->
+                    <div id="risk-signals-container" style="margin-top:0.8rem; display:none;">
+                        <div style="font-size:0.75rem; text-transform:uppercase; font-weight:700; color:var(--accent-blue); margin-bottom:0.4rem;">
+                            Triggered Risk Signals & Rationale:
+                        </div>
+                        <ul id="risk-signals-list" style="margin:0; padding-left:1.2rem; font-size:0.82rem; color:var(--text-primary); line-height:1.6;">
+                        </ul>
+                    </div>
+
+                    <!-- Evaluation Ground Truth Audit -->
+                    <div style="margin-top:1rem; padding-top:0.6rem; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center; font-size:0.8rem;">
+                        <span style="color:var(--text-secondary);">Held-Out Test Set Ground Truth (Evaluation Audit Only):</span>
+                        <span id="ground-truth-badge" class="decision-badge badge-allow">-</span>
                     </div>
                 </div>
             </div>
@@ -1313,11 +1370,21 @@ def index():
                 document.getElementById('cutoff-dt').textContent = res.TransactionDT;
                 document.getElementById('cutoff-dt-2').textContent = res.TransactionDT;
 
+                const thBlock = res.threshold_block || 0.30398;
+                const thReview = res.threshold_review || 0.15000;
+
                 // Model D UI
-                document.getElementById('d-score').textContent = res.prob_d.toFixed(5);
+                const pDetector = res.model_risk_score !== undefined ? res.model_risk_score : res.prob_d;
+                document.getElementById('d-score').textContent = pDetector.toFixed(5);
+                if (document.getElementById('d-raw-score') && res.raw_model_d_score !== undefined) {
+                    document.getElementById('d-raw-score').textContent = res.raw_model_d_score.toFixed(5);
+                }
+                document.getElementById('d-boundary').textContent = thBlock.toFixed(5);
+                
                 const dBadge = document.getElementById('d-badge');
-                dBadge.textContent = res.prob_d >= 0.30398 ? 'BLOCK' : 'ALLOW';
-                dBadge.className = 'decision-badge ' + (res.prob_d >= 0.30398 ? 'badge-block' : 'badge-allow');
+                const isDHigh = pDetector >= thBlock;
+                dBadge.textContent = isDHigh ? 'HIGH RISK' : 'LOW RISK';
+                dBadge.className = 'decision-badge ' + (isDHigh ? 'badge-block' : 'badge-allow');
                 
                 // Feature list in Model D drawer
                 let drawerHtml = '';
@@ -1343,7 +1410,7 @@ def index():
                 document.getElementById('audit-addr-exposure').textContent = (res.address_network.fraud_exposure * 100).toFixed(2) + '%';
                 document.getElementById('audit-addr-convergence').textContent = res.address_network.convergence_72h;
 
-                // Sentinel features comparison table
+                // Sentinel features comparison table (7 active features)
                 const sFeats = res.sentinel_features;
                 const devCardMatch = Math.abs(sFeats.device_unique_card_count - res.device_network.unique_cards_count) === 0;
                 const addrCardMatch = Math.abs(sFeats.addr_unique_card_count - res.address_network.unique_cards_count) === 0;
@@ -1371,13 +1438,13 @@ def index():
                         <td style="text-align:center;" class="badge-match">✓</td>
                     </tr>
                     <tr>
-                        <td>Device Fraud Rate</td>
+                        <td>Device Fraud Exposure Rate</td>
                         <td style="text-align:right;">${(sFeats.device_connected_fraud_rate*100).toFixed(2)}%</td>
                         <td style="text-align:right;">${(res.device_network.fraud_exposure*100).toFixed(2)}%</td>
                         <td style="text-align:center;" class="${devExpMatch ? 'badge-match' : 'badge-mismatch'}">${devExpMatch ? '✓' : '⚠'}</td>
                     </tr>
                     <tr>
-                        <td>Address Fraud Rate</td>
+                        <td>Address Fraud Exposure Rate</td>
                         <td style="text-align:right;">${(sFeats.addr_connected_fraud_rate*100).toFixed(2)}%</td>
                         <td style="text-align:right;">${(res.address_network.fraud_exposure*100).toFixed(2)}%</td>
                         <td style="text-align:center;" class="${addrExpMatch ? 'badge-match' : 'badge-mismatch'}">${addrExpMatch ? '✓' : '⚠'}</td>
@@ -1394,26 +1461,22 @@ def index():
                         <td style="text-align:right;">${res.cross_entity_convergence}</td>
                         <td style="text-align:center;" class="badge-match">✓</td>
                     </tr>
-                    <tr>
-                        <td>Ring Fraud Density</td>
-                        <td style="text-align:right;">${sFeats.ring_fraud_density.toFixed(4)}</td>
-                        <td style="text-align:right;">-</td>
-                        <td style="text-align:center;" class="badge-match">✓</td>
-                    </tr>
                 `;
                 document.getElementById('sentinel-feat-rows').innerHTML = sHtml;
 
                 // Sentinel Risk Score
-                document.getElementById('sentinel-score').textContent = res.prob_sentinel.toFixed(5);
+                const pSentinel = res.sentinel_risk_score !== undefined ? res.sentinel_risk_score : res.prob_sentinel;
+                document.getElementById('sentinel-score').textContent = pSentinel.toFixed(5);
+                document.getElementById('sentinel-boundary').textContent = thReview.toFixed(5);
                 const sBadge = document.getElementById('sentinel-badge');
                 
-                // Final Decision workflow logic
-                const threshold_d = 0.30398;
-                const threshold_sentinel = 0.15;
+                // Server Decision workflow logic (Source of Truth)
+                const decision = res.model_decision || (pDetector >= thBlock ? 'BLOCK' : (pSentinel >= thReview ? 'MANUAL_REVIEW' : 'ALLOW'));
                 
                 const outCard = document.getElementById('outcome-card');
                 const outHeader = document.getElementById('outcome-header');
                 const outRationale = document.getElementById('outcome-rationale');
+                const finalBadge = document.getElementById('final-decision-badge');
 
                 // Reset all nodes and lines
                 const nodeStart = document.getElementById('node-start');
@@ -1434,17 +1497,16 @@ def index():
                 line2.className = 'path-line';
                 line3.className = 'path-line';
 
-                document.getElementById('node-d-status').textContent = 'Scoring';
-                document.getElementById('node-sentinel-status').textContent = 'Scoring';
-                document.getElementById('node-final-status').textContent = 'Pending';
-
-                if (res.prob_d >= threshold_d) {
+                if (decision === 'BLOCK') {
                     sBadge.textContent = 'BYPASSED';
                     sBadge.className = 'decision-badge';
                     
+                    finalBadge.textContent = 'BLOCK (FRAUD PREVENTED)';
+                    finalBadge.className = 'decision-badge badge-block';
+
                     outCard.style.borderLeftColor = 'var(--accent-red)';
-                    outHeader.innerHTML = `<span style="color:var(--accent-red);">🚫 TRANSACTION BLOCKED</span>`;
-                    outRationale.innerHTML = `Model D transaction-level risk score (<strong>${res.prob_d.toFixed(4)}</strong>) exceeds the blocking threshold (<strong>0.30398</strong>). Transaction blocked immediately at checkout.`;
+                    outHeader.innerHTML = `<span style="color:var(--accent-red);">🚫 TRANSACTION BLOCKED AT CHECKOUT</span>`;
+                    outRationale.innerHTML = `Model D primary risk score (<strong>${pDetector.toFixed(4)}</strong>) meets or exceeds the blocking threshold (<strong>${thBlock.toFixed(5)}</strong>). Transaction intercepted before payment capture to protect merchant revenue.`;
 
                     // Pathway Diagram updates
                     nodeD.className = 'node blocked';
@@ -1457,46 +1519,78 @@ def index():
                     
                     document.getElementById('node-d-status').textContent = 'BLOCKED';
                     document.getElementById('node-sentinel-status').textContent = 'BYPASSED';
-                    document.getElementById('node-final-status').textContent = 'BLOCKED';
-                } else {
-                    const isReview = res.prob_sentinel >= threshold_sentinel;
-                    sBadge.textContent = isReview ? 'REVIEW' : 'APPROVE';
-                    sBadge.className = 'decision-badge ' + (isReview ? 'badge-review' : 'badge-approve');
+                    document.getElementById('node-final-status').textContent = 'BLOCK';
+                } else if (decision === 'MANUAL_REVIEW') {
+                    sBadge.textContent = 'HIGH RING RISK';
+                    sBadge.className = 'decision-badge badge-review';
+
+                    finalBadge.textContent = 'MANUAL REVIEW (ABUSE RING)';
+                    finalBadge.className = 'decision-badge badge-review';
 
                     // Model D allowed
                     nodeD.className = 'node approved';
                     line1.className = 'path-line active-line-green';
-                    document.getElementById('node-d-status').textContent = 'ALLOWED';
+                    document.getElementById('node-d-status').textContent = 'PASS';
 
-                    if (isReview) {
-                        outCard.style.borderLeftColor = 'var(--accent-amber)';
-                        outHeader.innerHTML = `<span style="color:var(--accent-amber);">⚠️ ROUTE TO SECONDARY REVIEW</span>`;
-                        outRationale.innerHTML = `Model D did not find sufficient risk to block (<strong>${res.prob_d.toFixed(4)} < 0.30398</strong>). However, the Abuse-Ring Sentinel detected a <strong>Coordinated Multi-Entity Risk Pattern</strong> (Score: <strong>${res.prob_sentinel.toFixed(4)} &ge; 0.15</strong>). Slashed auto-approval to route transaction for secondary manual review.`;
+                    outCard.style.borderLeftColor = 'var(--accent-amber)';
+                    outHeader.innerHTML = `<span style="color:var(--accent-amber);">⚠️ ROUTE TO MANUAL REVIEW & STEP-UP</span>`;
+                    outRationale.innerHTML = `Individual transaction risk is below blocking threshold (<strong>${pDetector.toFixed(4)} &lt; ${thBlock.toFixed(5)}</strong>). However, Abuse-Ring Sentinel detected a <strong>Coordinated Multi-Entity Abuse Pattern</strong> (Score: <strong>${pSentinel.toFixed(4)} &ge; ${thReview.toFixed(5)}</strong>). Auto-capture withheld for secondary verification.`;
 
-                        // Pathway Diagram updates
-                        nodeSentinel.className = 'node reviewed';
-                        line2.className = 'path-line active-line-amber';
-                        
-                        nodeFinal.className = 'node reviewed';
-                        line3.className = 'path-line active-line-amber';
-                        
-                        document.getElementById('node-sentinel-status').textContent = 'REVIEW';
-                        document.getElementById('node-final-status').textContent = 'REVIEW';
-                    } else {
-                        outCard.style.borderLeftColor = 'var(--accent-green)';
-                        outHeader.innerHTML = `<span style="color:var(--accent-green);">✅ AUTO-APPROVE & CAPTURE</span>`;
-                        outRationale.innerHTML = `Both Model D transaction risk (<strong>${res.prob_d.toFixed(4)} < 0.30398</strong>) and Sentinel network exposure risk (<strong>${res.prob_sentinel.toFixed(4)} < 0.15</strong>) are clean. Auto-approved and captured.`;
+                    // Pathway Diagram updates
+                    nodeSentinel.className = 'node reviewed';
+                    line2.className = 'path-line active-line-amber';
+                    
+                    nodeFinal.className = 'node reviewed';
+                    line3.className = 'path-line active-line-amber';
+                    
+                    document.getElementById('node-sentinel-status').textContent = 'REVIEW';
+                    document.getElementById('node-final-status').textContent = 'REVIEW';
+                } else {
+                    sBadge.textContent = 'CLEAN';
+                    sBadge.className = 'decision-badge badge-approve';
 
-                        // Pathway Diagram updates
-                        nodeSentinel.className = 'node approved';
-                        line2.className = 'path-line active-line-green';
-                        
-                        nodeFinal.className = 'node approved';
-                        line3.className = 'path-line active-line-green';
-                        
-                        document.getElementById('node-sentinel-status').textContent = 'CLEAN';
-                        document.getElementById('node-final-status').textContent = 'APPROVED';
-                    }
+                    finalBadge.textContent = 'ALLOW & CAPTURE';
+                    finalBadge.className = 'decision-badge badge-approve';
+
+                    // Model D allowed
+                    nodeD.className = 'node approved';
+                    line1.className = 'path-line active-line-green';
+                    document.getElementById('node-d-status').textContent = 'PASS';
+
+                    outCard.style.borderLeftColor = 'var(--accent-green)';
+                    outHeader.innerHTML = `<span style="color:var(--accent-green);">✅ AUTO-APPROVE & CAPTURE</span>`;
+                    outRationale.innerHTML = `Both Model D transaction risk (<strong>${pDetector.toFixed(4)} &lt; ${thBlock.toFixed(5)}</strong>) and Sentinel network exposure (<strong>${pSentinel.toFixed(4)} &lt; ${thReview.toFixed(5)}</strong>) are clean. Zero-friction instant payment authorization.`;
+
+                    // Pathway Diagram updates
+                    nodeSentinel.className = 'node approved';
+                    line2.className = 'path-line active-line-green';
+                    
+                    nodeFinal.className = 'node approved';
+                    line3.className = 'path-line active-line-green';
+                    
+                    document.getElementById('node-sentinel-status').textContent = 'CLEAN';
+                    document.getElementById('node-final-status').textContent = 'ALLOW';
+                }
+
+                // Populate Explainability: Deterministic Risk Signals
+                const signalsContainer = document.getElementById('risk-signals-container');
+                const signalsList = document.getElementById('risk-signals-list');
+                if (res.risk_signals && res.risk_signals.length > 0) {
+                    signalsContainer.style.display = 'block';
+                    signalsList.innerHTML = res.risk_signals.map(s => `<li>${s}</li>`).join('');
+                } else {
+                    signalsContainer.style.display = 'block';
+                    signalsList.innerHTML = `<li style="color:var(--accent-green);">✓ Zero anomalous risk signals detected across temporal, card, or entity velocity dimensions.</li>`;
+                }
+
+                // Populate Ground Truth Audit Label
+                const gtBadge = document.getElementById('ground-truth-badge');
+                if (res.ground_truth_is_fraud === 1 || res.isFraud === 1) {
+                    gtBadge.textContent = 'CONFIRMED FRAUD (isFraud = 1)';
+                    gtBadge.className = 'decision-badge badge-block';
+                } else {
+                    gtBadge.textContent = 'CONFIRMED LEGIT (isFraud = 0)';
+                    gtBadge.className = 'decision-badge badge-allow';
                 }
 
                 // Update Network Visualizer nodes

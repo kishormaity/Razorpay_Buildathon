@@ -1,0 +1,130 @@
+{
+  "evaluation_basis": "Locked Chronological Test Set",
+  "timestamp_evaluated": "2026-09-05T17:35:32Z",
+  "splits": {
+    "total_rows": 20020,
+    "train_rows": 14014,
+    "val_rows": 3003,
+    "test_rows": 3003,
+    "train_dt_range": [
+      86400,
+      404956
+    ],
+    "val_dt_range": [
+      404992,
+      444965
+    ],
+    "test_dt_range": [
+      444971,
+      517208
+    ]
+  },
+  "frozen_thresholds": {
+    "model_d_block_threshold": 0.5,
+    "model_d_review_threshold": 0.05,
+    "sentinel_threshold": 0.45,
+    "threshold_selection_split": "VALIDATION ONLY (Frozen before test)"
+  },
+  "cost_assumptions": {
+    "fp_cost_inr": 1500.0,
+    "chargeback_fee_inr": 1200.0,
+    "investigation_cost_inr": 500.0,
+    "review_capture_efficiency": 0.85,
+    "is_assumption": true,
+    "note": "Cost parameters and review capture efficiency (85%) are modeled operational assumptions, not observed transactional ledger losses."
+  },
+  "metrics": {
+    "summary": {
+      "total_transactions": 3003,
+      "total_transaction_value_inr": 431591.103,
+      "total_fraud_cases": 96,
+      "total_fraud_value_inr": 13954.792,
+      "total_legitimate_cases": 2907,
+      "total_legitimate_value_inr": 417636.311,
+      "fraud_prevalence_pct": 3.196803196803197
+    },
+    "model_d_alone": {
+      "true_positives": 43,
+      "false_positives": 228,
+      "true_negatives": 2679,
+      "false_negatives": 53,
+      "precision": 0.15867158671586715,
+      "recall": 0.4479166666666667,
+      "f1_score": 0.23433242506811988,
+      "fpr": 0.0784313725490196,
+      "pr_auc": 0.16357614209135768,
+      "roc_auc": 0.7743127221648894,
+      "fraud_cases_captured": 43,
+      "fraud_cases_missed": 53,
+      "fraud_direct_block_count": 3,
+      "fraud_review_count": 40,
+      "fraud_direct_block_val_inr": 136.912,
+      "fraud_review_val_inr": 6780.405000000001,
+      "direct_block_fraud_prevented_inr": 136.912,
+      "triaged_review_fraud_exposure_inr": 6780.405000000001,
+      "gross_fraud_exposure_intercepted_inr": 6917.317,
+      "estimated_fraud_value_prevented_inr": 6917.317,
+      "estimated_realized_fraud_prevented_inr": 5900.25625,
+      "fraud_value_missed_inr": 7037.474999999999,
+      "false_positive_blocks_count": 3,
+      "false_positive_reviews_count": 225,
+      "false_positive_blocks_val_inr": 215.33700000000002,
+      "false_positive_reviews_val_inr": 50897.77799999999,
+      "legitimate_value_inconvenienced_inr": 51113.115,
+      "estimated_false_positive_cost_inr": 342000.0,
+      "estimated_false_positive_cost_tiered_inr": 117000.0,
+      "estimated_net_loss_avoided_inr": -335082.683,
+      "estimated_net_loss_avoided_tiered_inr": -110082.683,
+      "estimated_realized_net_loss_avoided_tiered_inr": -111099.74375,
+      "review_capture_efficiency_assumption": 0.85
+    },
+    "production_hybrid": {
+      "true_positives": 56,
+      "false_positives": 518,
+      "true_negatives": 2389,
+      "false_negatives": 40,
+      "precision": 0.0975609756097561,
+      "recall": 0.5833333333333334,
+      "f1_score": 0.16716417910447762,
+      "fpr": 0.1781905744754042,
+      "pr_auc": 0.09573507279544609,
+      "roc_auc": 0.7123824676069258,
+      "fraud_cases_captured": 56,
+      "fraud_cases_missed": 40,
+      "fraud_direct_block_count": 3,
+      "fraud_review_count": 53,
+      "fraud_direct_block_val_inr": 136.912,
+      "fraud_review_val_inr": 7477.17,
+      "direct_block_fraud_prevented_inr": 136.912,
+      "triaged_review_fraud_exposure_inr": 7477.17,
+      "gross_fraud_exposure_intercepted_inr": 7614.082,
+      "estimated_fraud_value_prevented_inr": 7614.082,
+      "estimated_realized_fraud_prevented_inr": 6492.5065,
+      "fraud_value_missed_inr": 6340.709999999999,
+      "false_positive_blocks_count": 3,
+      "false_positive_reviews_count": 515,
+      "false_positive_blocks_val_inr": 215.33700000000002,
+      "false_positive_reviews_val_inr": 77041.23999999999,
+      "legitimate_value_inconvenienced_inr": 77256.57699999999,
+      "estimated_false_positive_cost_inr": 777000.0,
+      "estimated_false_positive_cost_tiered_inr": 262000.0,
+      "estimated_net_loss_avoided_inr": -769385.918,
+      "estimated_net_loss_avoided_tiered_inr": -254385.918,
+      "estimated_realized_net_loss_avoided_tiered_inr": -255507.4935,
+      "review_capture_efficiency_assumption": 0.85
+    },
+    "sentinel_incremental_value": {
+      "fraud_missed_by_model_d_count": 53,
+      "fraud_missed_by_model_d_value_inr": 7037.475,
+      "sentinel_intercepted_count": 13,
+      "sentinel_intercepted_value_inr": 696.765,
+      "incremental_fraud_exposure_intercepted_inr": 696.765,
+      "incremental_realized_loss_prevented_inr": 592.2502499999999,
+      "incremental_capture_rate_pct": 24.528301886792452,
+      "total_fraud_capture_increase_pct": 13.541666666666666,
+      "additional_legitimate_escalations": 290,
+      "escalations_per_additional_fraud_caught": 22.307692307692307,
+      "operating_tradeoff": "22.3 legitimate reviews per incremental fraud captured"
+    }
+  }
+}

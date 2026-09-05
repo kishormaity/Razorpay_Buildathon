@@ -25,13 +25,13 @@ graph TD
 
 ### 📁 Directory Breakdown
 
-1. **[`ai-risk-sentinel-baseline/`](file:///c:/Users/BIT/Downloads/Razorpay_Build/ai-risk-sentinel-baseline/) (Baseline Workbench)**
-   * **Purpose:** Initial ingestion of the IEEE-CIS Fraud Detection dataset, validation split creation, and tabular GBDT modeling experiments.
-   * **Key Outcome:** **Model D LightGBM Booster (`model_d_final.txt`)** which reached `0.5814` PR-AUC on tabular transactions and historical frequency/Bayesian features.
-   * **Dataset Store**: Stores the raw transaction and identity CSV datasets (under `ai-risk-sentinel-baseline/data-pipeline/data/raw/`), which are shared with the production directory.
+1. **[`ai-risk-sentinel-baseline/`](./ai-risk-sentinel-baseline/) (AI Risk Manager — Merchant Loss Prevention)**
+   * **Purpose:** The core payment fraud detection and abuse-ring prevention engine. Implements Model D LightGBM (408 features, leakage-free), Abuse-Ring Sentinel, calibrated probability engine, server-side decision routing (`ALLOW` / `REVIEW` / `BLOCK`), and held-out financial loss evaluation.
+   * **Key Outcome:** **+$144,893.32 Net Loss Avoided** on 15% held-out test split (88,581 txns) at 2.94% FPR.
+   * **Dataset Store**: Stores raw transaction and identity CSV datasets (under `ai-risk-sentinel-baseline/data-pipeline/data/raw/`).
 
-2. **[`abuse-ring-sentinel/`](file:///c:/Users/BIT/Downloads/Razorpay_Build/abuse-ring-sentinel/) (Production Upgraded System)**
-   * **Purpose:** The state-of-the-art final submission system (formerly v2).
+2. **[`abuse-ring-sentinel/`](./abuse-ring-sentinel/) (Production Upgraded System)**
+   * **Purpose:** The downstream production exploration workspace with GraphSAGE GNN and multi-entity relational schema.
    * **Key Upgrades:**
      * **Relational Schema**: Normalized multi-entity SQLite database.
      * **GraphSAGE GNN**: PyTorch neighbor aggregation layer yielding a peak **`0.1802` PR-AUC** (outperforming traditional Node2Vec).

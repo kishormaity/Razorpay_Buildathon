@@ -188,7 +188,7 @@ This saves the enriched features to `data/processed/features/historical_features
 ### 2. Train the Champion Model
 Train the LightGBM transaction + historical features model under chronological 80/20 splitting:
 ```bash
-python experiments/train_historical_model.py
+python research/train_historical_model.py
 ```
 This saves the trained model to `data/processed/models/historical_lgb_model.txt`, exports predictions, plots comparative Precision-Recall curves, and writes a detailed evaluation report.
 

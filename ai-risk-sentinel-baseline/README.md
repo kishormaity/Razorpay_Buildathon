@@ -1,253 +1,171 @@
-# AI Risk Sentinel - Baseline Workbench
+# AI Risk Sentinel — AI Risk Manager for Merchant Fraud Loss Prevention
 
-> [!NOTE]
-> This folder (`ai-risk-sentinel-baseline/`) serves as the **Baseline Workbench** for the AI Risk Sentinel project. It contains the initial data ingestion pipeline, tabular feature engineering, GBDT modeling experiments on the IEEE-CIS Fraud Detection dataset, and the baseline analyst dashboard prototype. 
->
-> The outcomes developed here are inherited and upgraded in **Abuse-Ring Sentinel** (Production System).
+> **Track**: AI Risk Manager  
+> **Single Class of Loss**: **Payment Fraud & Coordinated Abuse Rings**  
+> **Core Thesis**: Detect suspicious transactions, verify coordinated multi-entity abuse networks, and execute automated defensive actions to maximize **Net Merchant Loss Avoided ($)** while strictly bounding false-positive customer friction.
 
 ---
 
-## 🧬 Project Lineage & Downstream Upgrades
+## 🏗️ System Architecture: Defense-in-Depth
 
-The artifacts and findings from this baseline directory directly power the downstream versions:
+The platform operates as a modular, three-tier merchant fraud defense system:
 
 ```mermaid
-graph TD
-    subgraph baseline ["1. Baseline Workbench (ai-risk-sentinel-baseline/)"]
-        A[Data Ingestion Pipeline] --> B[Model D: LightGBM + Hist Features]
-        B --> C[Frozen Binary: model_d_final.txt]
-    end
-    
-    subgraph prod ["2. Production System (abuse-ring-sentinel/)"]
-        C --> E[GBT Ingestion Layer]
-        E --> F[Stacked Stacking Fusion]
-        F --> G[Isotonic Calibration & Cost Optimizer]
-        H[Relational SQLite Schema & Explainability Graph]
-    end
+flowchart TD
+    TX[Incoming Checkout Transaction] --> DET[1. DETECTOR: Model D LightGBM<br/>408 Features + Isotonic Calibration]
+    DET -->|Calibrated Prob >= 0.15| BLK[3. AUTO-RESPONDER: BLOCK<br/>Intercept Fraud at Checkout]
+    DET -->|Calibrated Prob < 0.15| VER[2. VERIFIER: Abuse-Ring Sentinel<br/>7 Network Entity-Convergence Features]
+    VER -->|Network Risk >= 0.08| REV[3. AUTO-RESPONDER: MANUAL REVIEW<br/>Withhold Capture / Step-Up OTP]
+    VER -->|Network Risk < 0.08| APP[3. AUTO-RESPONDER: ALLOW<br/>Zero-Friction Payment Capture]
+
+    style BLK fill:#7f1d1d,stroke:#f87171,color:#fff
+    style REV fill:#78350f,stroke:#fbbf24,color:#fff
+    style APP fill:#14532d,stroke:#4ade80,color:#fff
+    style DET fill:#1e293b,stroke:#38bdf8,color:#fff
+    style VER fill:#1e293b,stroke:#a855f7,color:#fff
 ```
 
-### 📦 Key Baseline Outcomes Inherited by V1 & V2:
-1. **Model D Binary (`model_d_final.txt`)**: Reused in V1 and V2 as the tabular classification score ($R_{\text{GBM}}$).
-2. **Historical Feature Engineering**: The Bayesian-smoothed card fraud-rate and velocity features established here form the base transaction features.
-3. **Flat SQLite Database Schema**: Normalized and upgraded to a multi-entity relational schema in V2.
-4. **Analyst UI Routing Skeleton**: Upgraded in V2 with `/accounts` (entity maps), `/alerts` (real-time threat spikes), and `/model-performance` (ROC/PR curves comparing baseline GBDT vs GraphSAGE/Fusion).
+### 1. Detector: Model D LightGBM
+* **Scope**: Individual transaction anomaly detection.
+* **Feature Vector**: 408 features spanning transaction telemetry, distance and address matching, and Bayesian-smoothed historical card frequencies.
+* **Leakage-Free**: Raw `TransactionDT` has been completely eliminated and replaced with 6 stationary cyclical features (`hour_of_day`, `day_of_week`, `hour_sin`, `hour_cos`, `day_of_week_sin`, `day_of_week_cos`).
+* **Calibration**: Isotonic regression calibrator maps tree logits to true posterior probabilities on held-out chronological data.
+
+### 2. Verifier: Abuse-Ring Sentinel
+* **Scope**: Secondary network-level verification for transactions that pass initial screening.
+* **Feature Vector**: 7 multi-entity coordination signals (device card counts, billing address card counts, email reuse, 72-hour card convergence, device/address historical fraud exposure rates, and cross-entity overlap hubs).
+* **Weak Supervision**: Identifies fraud rings executing multi-card trial velocity and device rotation.
+
+### 3. Auto-Responder: Decision Engine
+* **Policy**: Bounded false-positive rate constraint ($\text{FPR} < 3.0\%$) with validation-optimized operating thresholds:
+  * **BLOCK**: $\hat{p}_{\text{detector}} \ge 0.15000$ (Immediate checkout interception)
+  * **MANUAL REVIEW**: $\hat{p}_{\text{verifier}} \ge 0.08000$ (Pre-capture hold or step-up authentication)
+  * **ALLOW**: Both models below thresholds (Instant automated capture)
+* **Explainability**: Deterministic risk reason codes generated at runtime from observable telemetry without reference to ground-truth labels.
 
 ---
 
-## 🏗️ Platform Architecture (Baseline)
+## 💰 Held-Out Test Set Financial Evaluation
 
-The baseline project consists of the **Dataset Workbench (Data Pipeline)**: A Python pipeline that automates downloading the raw IEEE-CIS dataset, merging transaction and identity data, running dynamic audits, and structuring tables for database schemas.
+The entire architecture is evaluated on a strictly locked **15% chronological held-out test split** (88,581 transactions, $12,148,754.19 total checkout volume). The test set spans the final time period and was never seen during model training, feature target encoding, or threshold optimization.
 
-```text
-                  IEEE-CIS Kaggle Raw Data
-                             │
-                             ▼
-                    [Dataset Workbench]
-                             │
-            ┌────────────────┴────────────────┐
-            ▼                                 ▼
-   [ML Modeling Dataset]             [Application Schema]
-     (merged_train.parquet)            (schema.sql)
-                                              │
-                                              ▼
-                                       [SQLite Database]
-                                      (risk_sentinel.db)
-```
+### Economic Cost Model
+* **Fraud Loss Cost**: 100% of transaction amount if fraudulent transaction is captured ($L = \text{Amount}$).
+* **False Positive Friction Cost Rate**: 15% of transaction amount representing merchant margin loss, interchange fees, and customer churn penalty ($C_{\text{FP}} = 0.15 \times \text{Amount}$).
+* **Net Loss Avoided ($)**: $\text{Fraud Loss Prevented} - \text{False Positive Friction Cost}$.
 
+### Locked Test Set Results
+
+| Financial & Operating Metric | Held-Out Test Result (15% Split) | Operational Objective | Status |
+| :--- | :---: | :---: | :---: |
+| **Total Test Transactions** | **88,581** | Full Held-Out Split | Locked |
+| **Total Test Checkout Volume** | **$12,148,754.19** | - | - |
+| **Baseline Fraud at Risk** | **$469,608.52** (3,083 txns) | Baseline Exposure | Measured |
+| **Direct Fraud Loss Prevented** | **$218,964.73** | Maximize Prevention | Captured |
+| **Fraud Value Capture Rate** | **46.63%** | Maximize Capture | Captured |
+| **False Positive Volume Blocked** | **$493,809.36** (2,510 txns) | Minimize Disruption | Controlled |
+| **False Positive Friction Cost (15%)** | **$74,071.40** | Penalty Subtracted | Controlled |
+| **Net Financial Loss Avoided** | **+$144,893.32** | $> $0 Net Merchant Savings | **Exceeded** |
+| **Test Set False Positive Rate (FPR)** | **2.94%** | $\le 3.00\%$ Business Ceiling | **Satisfied** |
+| **Fraud Precision** | **40.95%** | High Quality Blocks | Measured |
+| **Model D ROC-AUC** | **0.8892** | Ranking Discrimination | High |
+| **Model D PR-AUC** | **0.5122** | Precision-Recall Area | High |
+| **Sentinel Reviewed Fraud Cases** | **1,339 txns** ($250,643.79) | High-Risk Catchment | Routed |
 
 ---
 
-## 📁 Directory Structure (Baseline)
+## 🔬 Methodological Integrity & Leakage Prevention
+
+This repository strictly adheres to causal ML practices to prevent common benchmark pitfalls:
+
+1. **Stationary Temporal Representation**:
+   * Raw monotonic `TransactionDT` was removed from the feature matrix. Tree algorithms split on raw timestamps create split boundaries that fail to generalize to future unseen time horizons.
+   * Replaced with 6 stationary cyclical features (`hour_of_day`, `day_of_week`, sine/cosine encodings) that generalize indefinitely into future transactions.
+2. **Causal Historical Target Encodings**:
+   * Expanding target encodings and entity frequencies are calculated strictly from past transactions ($t < \text{current\_dt}$).
+   * The historical split boundary is aligned to the 70% training split, preventing lookahead leakage into the validation and test splits.
+3. **Probability Calibration**:
+   * Raw gradient-boosted decision tree outputs are distorted by class imbalance and log-loss objectives.
+   * An isotonic regression calibrator fitted on the chronological development split aligns predicted probabilities with true observed empirical frequencies.
+4. **Separation of Model Decisions from Ground Truth**:
+   * Ground truth (`isFraud`) is strictly quarantined for offline audit and evaluation reporting.
+   * Runtime decision routing (`make_decision()`) and deterministic explainability (`explain_risk()`) operate exclusively on observable transaction features and calibrated probabilities.
+
+---
+
+## 📁 Repository Directory Structure
 
 ```text
 ai-risk-sentinel-baseline/
-├── README.md                 # This baseline documentation
-├── CLAUDE.md                 # Developer CLI command cheatsheet
-├── PROJECT_GUIDE.md          # File mapping and classifications
-├── experiments_summary.md    # Summary of baseline experiments & metrics
-└── data-pipeline/            # Python Data Engineering Pipeline & API Server
-    ├── README.md             # Data pipeline instructions
-    ├── requirements.txt      # Python dependencies
-    ├── pipeline/             # Data ingestion and preprocessing scripts
-    ├── features/             # Feature engineering components
-    ├── app/                  # FastAPI app and index demo frontend
-    ├── research/             # Model training experiments & analytical scripts
-    ├── validation/           # Statistical validations & verification scripts
-    └── data/                 # Raw and processed datasets (Git-ignored)
+├── README.md                      # This file (executive architecture & results)
+├── PROJECT_GUIDE.md               # Detailed directory guide with relative links
+├── CLAUDE.md                      # CLI commands cheatsheet
+├── experiments_summary.md         # Historical experiment logs & ablation records
+└── data-pipeline/                 # Python Data Engineering Pipeline & API Server
+    ├── requirements.txt           # Python dependencies
+    ├── pipeline/
+    │   ├── risk_engine.py         # Decision routing, loss evaluation & explainability
+    │   ├── preprocess.py          # Data ingestion, entity graph generation & SQLite DB
+    │   ├── build_merged_dataset.py# Chronological table merger
+    │   ├── download.py            # IEEE-CIS Kaggle downloader
+    │   ├── audit.py               # Data audit & integrity checks
+    │   └── schema.sql             # Relational SQLite schema
+    ├── features/
+    │   ├── transaction_features.py# 408 baseline features (no TransactionDT)
+    │   ├── historical_features.py # Leakage-free Bayesian expanding encodings
+    │   ├── abuse_ring_features.py # 7 secondary Sentinel features
+    │   ├── card_novelty_features.py# Card issuance timelines
+    │   ├── deviation_features.py  # Behavioral deviations
+    │   └── graph_features.py      # Entity graph overlap metrics
+    ├── models/
+    │   ├── model_d_final.txt      # Frozen 408-feature LightGBM detector booster
+    │   ├── abuse_ring_sentinel_final.txt # Frozen 7-feature Sentinel verifier booster
+    │   ├── model_d_calibrator.joblib # Isotonic probability calibrator
+    │   ├── thresholds.json        # Validation-optimized operating thresholds
+    │   ├── test_metrics.json      # Locked held-out test evaluation metrics
+    │   ├── model_d_features.json  # Detector feature schema (408 features)
+    │   └── sentinel_features.json # Verifier feature schema (7 features)
+    ├── app/
+    │   ├── sentinel_app.py        # FastAPI server & interactive audit portal
+    │   └── sentinel_demo.py       # Terminal simulation demo
+    ├── research/
+    │   └── train_final_models.py  # End-to-end training, calibration & test evaluation
+    └── validation/
+        ├── test_causal_integrity.py # Automated leakage and temporal tests
+        └── validate_sentinel_routing.py # Routing verification script
 ```
 
 ---
 
-## 🛠️ Getting Started
+## 🚀 Quickstart & Reproducibility
 
-### 1. Backend & Data Pipeline Setup
-
-Configure your Python environment and prepare the IEEE-CIS raw data:
-
-```bash
-# 1. Navigate to the backend workbench
-cd backend
-
-# 2. Set up virtual environment and install dependencies
-python -m venv .venv
-.venv\Scripts\activate       # On Windows (cmd/powershell)
-source .venv/bin/activate    # On Unix/macOS
-pip install -r requirements.txt
-
-# 3. Configure your Kaggle credentials (kaggle.json API token)
-# Standard location: ~/.kaggle/kaggle.json
-
-# 4. Download raw dataset from Kaggle
-python pipeline/download.py
-
-# 5. Run the high-reliability dataset merger (produces merged_train.parquet)
-python pipeline/build_merged_dataset.py
-
-# 6. Run the dynamic data audit (produces data_audit_report.md)
-python pipeline/audit.py
-```
-
-
-
----
-
-## 🧪 ML Modeling Pipeline & Leaderboard
-
-The Python data workbench includes a high-performance modeling pipeline that evaluates incremental feature groups and boosting algorithms under a chronological 80/20 train/validation split. The primary evaluation metric is **PR-AUC (Average Precision)** because the dataset is highly imbalanced, with approximately 3.499% fraudulent transactions (20,663 fraud cases out of 590,540 total transactions).
-
-### 📁 Model Progression
-* **Model A (Transaction-Only)**: The LightGBM transaction-only baseline model. **PR-AUC: `0.57181`**.
-* **Model B (Transaction + All Behavioral)**: LightGBM using transaction features plus all 12 rolling behavioral features. Performance decreased to **PR-AUC `0.54628`**, indicating that raw rolling window aggregates introduced noise when directly combined with transaction features.
-* **Model C (Transaction + Top-6 Behavioral)**: LightGBM using transaction features plus the six highest-ranked behavioral features. Achieved **PR-AUC `0.56722`**.
-* **Model D (Transaction + Historical)**: LightGBM using transaction + 10 leakage-free chronological historical features. This is currently the **best-performing model**, achieving **PR-AUC `0.58144`**.
-* **Model E (XGBoost Transaction + Historical)**: XGBoost version of Model D. Achieved **PR-AUC `0.55965`**.
-* **Model F (Transaction + Historical + Top-6 Behavioral)**: LightGBM combining transaction, historical, and the top-6 behavioral features. Achieved **PR-AUC `0.57394`**. Top behavioral features did not provide additional PR-AUC improvement when combined with the historical features in this LightGBM configuration.
-
----
-
-### 📊 Comparative Leaderboard
-
-All Models A–F are evaluated using the same chronological validation split. PR-AUC is the primary metric.
-
-| Model Config | Algorithm | Features Included / Mode | PR-AUC (Primary) | ROC-AUC | Optimal F1 | FPR @ Optimal | Training Time | Best Iteration | Note |
-| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **Model A** | LightGBM | Transaction-Only Baseline | `0.57181` | `0.91223` | `0.56645` | `0.00948` | `94.91s` | `831` | Baseline |
-| **Model B** | LightGBM | Transaction + All 12 Behavioral | `0.54628` | `0.90603` | `0.55230` | `0.00800` | `141.22s` | `393` | Overfitting noise |
-| **Model C** | LightGBM | Transaction + Top-6 Behavioral | `0.56722` | `0.91233` | `0.56120` | `0.00735` | `123.28s` | `378` | FPR reduction |
-| 🥇 **Model D** | **LightGBM** | **Transaction + Historical** | **`0.58144`** | `0.90507` | **`0.58178`** | **`0.00880`** | `119.27s` | `998` | **Pipeline Champion** |
-| **Model E** | XGBoost | Transaction + Historical | `0.55965` | `0.89799` | `0.56932` | `0.00943` | `413.15s` | `444` | Depth-first growth |
-| **Model F** | LightGBM | Transaction + Hist + Top-6 Behav | `0.57394` | `0.90275` | `0.57162` | `0.01005` | `77.35s` | `562` | Behavioral redundancy |
-| **LGBM Behavior** | LightGBM | 12 Behavioral Features Only | `0.08936` | `0.72475` | `0.17132` | `0.06985` | `5.98s` | `81` | Standalone benchmark |
-| **XGB Behavior** | XGBoost | 12 Behavioral Features Only | **`0.09396`** | `0.72462` | `0.17269` | `0.05659` | `10.37s` | `46` | Standalone winner |
-| **CatB Behavior** | CatBoost | 12 Behavioral Features Only | `0.09180` | `0.72463` | `0.17139` | `0.05942` | `32.43s` | `504` | Standalone benchmark |
-| **Weighted Fusion** | Linear | $w_{opt}=1.00$ (Tx-only weight) | `0.54831` | `0.90667` | `0.54939` | `0.01054` | `1.74s` | *N/A* | Meta-Test subset |
-| **Logistic Stack** | Logistic Reg | Tx Model + Behavioral Model | `0.54529` | `0.90729` | `0.54991` | `0.01052` | `1.74s` | *N/A* | Meta-Test subset |
-
-> **Note:** Fusion metrics were evaluated on the Meta-Test subset, so they should not be directly compared with the full validation metrics of Models A–F.
-
----
-
-### 🔍 Key Scientific Insights & Takeaways
-
-1. **Tabular Champion (Model D)**:
-   * **PR-AUC**: **`0.58144`** (A relative improvement of **`+1.68%`** over the baseline Model A).
-   * **Optimal F1-Score**: **`0.58178`** (An absolute improvement of **`+0.01533`**).
-   * **FPR**: Reduced to **`0.00880`** (A **7.2% reduction in false positives**, reducing customer checkout friction by 77 occurrences).
-   * **Metrics Trade-off**: Model D significantly improves PR-AUC, F1, and FPR, but results in a slight decrease in ROC-AUC (`0.90507` vs. `0.91223`).
-2. **Expanding Chronological Encodings prevent Overfitting**:
-   * Rolling window aggregates (Model B/C/F) fluctuate rapidly and introduce high-frequency noise. This caused LightGBM to overfit on specific card records and trigger premature early stopping.
-   * In contrast, Model D leverages 10 **leakage-free expanding chronological target encodings and count frequencies** smoothed with Bayesian m-estimates. These features are highly stable and represent the global risk profile of entities. The model trained for **998 rounds** without overfitting, achieving our peak score.
-   * In Model D/F, `card_addr_combo_historical_fraud_rate` became the **#1 most important feature** by gain globally, surpassing raw card and address IDs.
-3. **Booster Growth Strategy Dynamics**:
-   * LightGBM's leaf-wise (best-first) tree growth is highly optimized for high-cardinality categorical tabular datasets. It outpaced XGBoost Model E by **`+0.02179`** in PR-AUC and trained **3.5x faster** (119s vs. 413s). XGBoost's level-wise (depth-first) growth strategy overfit on features early, triggering premature early stopping.
-4. **Behavioral Redundancy**:
-   * Combining historical features and behavioral features in Model F degraded PR-AUC to `0.57394` (down `-0.00750` from Model D). The stable chronological features render rolling behavioral windows redundant and noisy in this configuration.
-
----
-
-## 🏆 Current Best Model
-
-**Model D — LightGBM Transaction + Historical Features**
-
-- Algorithm: **LightGBM**
-- Feature space: **403 model features** (393 transaction + 4 historical frequency + 6 Bayesian-smoothed fraud-rate features)
-- PR-AUC: **`0.58144`**
-- ROC-AUC: `0.90507`
-- Optimal F1: **`0.58178`**
-- FPR @ Optimal: **`0.00880`**
-
-Model D currently provides the highest PR-AUC and optimal F1 balance among all evaluated configurations.
-
----
-
-## 🛡️ Standalone Abuse-Ring Sentinel Layer
-
-To address coordinated network-based exploits that bypass transaction-level models, we integrated a secondary review routing overlay:
-> **The Abuse-Ring Sentinel identifies transactions exhibiting coordinated multi-entity risk patterns using a chronological weak-supervision proxy.**
-
-### 1. Two-Layer Operational Workflow
-Rather than blending risk scores, which dilutes automated checkout precision, the pipeline implements a modular routing topology:
-
-```text
-                  Incoming Transaction
-                           │
-                           ▼
-                    [ Model D GBDT ]
-                     Threshold 0.30
-                           │
-             ┌─────────────┴─────────────┐
-             ▼                           ▼
-          [ BLOCK ]                   [ ALLOW ]
-       (score >= 0.30)            (score < 0.30)
-                                         │
-                                         ▼
-                               [ Sentinel Check ]
-                                 Threshold 0.15
-                                         │
-                           ┌─────────────┴─────────────┐
-                           ▼                           ▼
-                       [ REVIEW ]                  [ APPROVE ]
-                    (score >= 0.15)             (score < 0.15)
-```
-
----
-
-### 2. Locked Final Test Set Metrics
-
-The Sentinel was evaluated once on the strictly locked chronological Test split (last 15% of transactions), delivering these results:
-
-| Evaluation Dimension | Final Test Split Result |
-| :--- | :---: |
-| **Sentinel Review Population Share** | **`9.90%`** (8,773 transactions) |
-| **Model D Missed Fraud (FNs) Total** | **`1,647`** cases |
-| **Sentinel-Captured FNs** | **`201`** cases |
-| **Missed Fraud (FN) Capture Rate (%)** | **`12.20%`** |
-| **Fraud Count in Reviewed Set** | **`426`** cases |
-| **FN Capture Efficiency** | **`1.23x`** |
-
-*By capturing 12.20% of Model D's missed fraud while reviewing only 9.90% of transactions, the Sentinel routes risk with **1.23x** efficiency compared to random selection.*
-
----
-
-## 🚀 Final Submission Reproducibility
-
-To run the pipeline replication and launch the interactive scenario demo, execute:
-
+### 1. Environment Setup
 ```powershell
-# 1. Run final validation report replication
-.venv\Scripts\python data-pipeline/validation/validate_sentinel_routing.py
-
-# Run the sentinel demo visualization
-.venv\Scripts\python data-pipeline/app/sentinel_demo.py
+cd data-pipeline
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
----
+### 2. Verify Causal Integrity (Automated Tests)
+Runs automated assertions verifying that raw `TransactionDT` is excluded from feature sets, target encodings respect chronological boundaries, and risk decision engine operates strictly without ground-truth:
+```powershell
+python validation/test_causal_integrity.py
+```
 
-## 🔬 Core Data Guidelines
+### 3. Retrain Models & Evaluate Held-Out Test Set
+Trains Model D (408 features), trains Sentinel (7 features), fits probability calibrator on validation split, optimizes operating thresholds for net financial loss avoidance, and outputs test set evaluation:
+```powershell
+python research/train_final_models.py
+```
 
-To prevent common ML pipeline mistakes, this repository enforces the following practices:
-* **No Synthetic Fallback**: The database pipeline structures raw features directly from the source dataset. No mock fallback data is written.
-* **No Label Leakage**: The target label (`isFraud`) is strictly excluded from feature inputs, preserving separation between ground truth and simulated model scores.
-* **Correct Temporal Representation**: `TransactionDT` is treated as a relative offset in elapsed seconds from an anonymized reference point for relative-time feature engineering. It is not mapped to hardcoded calendar days.
-* **Entity Relationships**: User identities are not assumed using `card1`. The graph model explicitly maps separate nodes for payments (`CARD`), hardware configurations (`DEVICE`), and billing locations (`REGION`).
+### 4. Launch Live Inference & Verifiable Audit Portal
+Starts the FastAPI application serving the interactive live audit portal and REST endpoints at `http://127.0.0.1:8000`:
+```powershell
+python app/sentinel_app.py
+```
 
+### 5. API Endpoints
+* `GET /api/metrics/merchant-impact`: Returns held-out test set financial impact metrics (net loss avoided, fraud prevented, FPR, ROC/PR AUC).
+* `GET /api/lookup?transaction_id={id}`: Looks up pre-indexed test transaction telemetry and ground truth for audit.
+* `POST /api/analyze`: Scores transaction through calibrated Model D and Sentinel, applies server-side decision routing, generates deterministic risk reason codes, and performs real-time chronological network auditing.

@@ -1,0 +1,24 @@
+{
+  "model_d": {
+    "pr_auc": 0.5255954246922125,
+    "roc_auc": 0.8892529837607778,
+    "precision": 0.5616438356164384,
+    "recall": 0.4920531949399935,
+    "f1": 0.5245504840940526,
+    "threshold": 0.30398
+  },
+  "sentinel_weak_supervision_proxy": {
+    "pr_auc": 0.9999996224546995,
+    "roc_auc": 0.9999999585680235,
+    "precision": 0.9997720018239854,
+    "recall": 1.0,
+    "f1": 0.9998859879147189,
+    "threshold": 0.15,
+    "evaluation_type": "WEAK-SUPERVISION / PROXY-LABEL EVALUATION"
+  },
+  "sentinel_ground_truth_interception": {
+    "model_d_false_negatives_captured": 198,
+    "total_model_d_false_negatives": 1566,
+    "capture_rate": 0.12643678160919541
+  }
+}

@@ -138,5 +138,31 @@ export const transactionService = {
       throw new Error(`Transaction ${id} not found after update.`);
     }
     return tx;
+  },
+
+  async getMerchantImpact(): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/merchant/impact`, { cache: 'no-store' });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch merchant impact: ${res.statusText}`);
+    }
+    return res.json();
+  },
+
+  async getPolicyScorecard(): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/policy/scorecard`, { cache: 'no-store' });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch policy scorecard: ${res.statusText}`);
+    }
+    return res.json();
+  },
+
+  async getDemoCases(): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/demo/cases`, { cache: 'no-store' });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch demo cases: ${res.statusText}`);
+    }
+    return res.json();
   }
 };
+
+

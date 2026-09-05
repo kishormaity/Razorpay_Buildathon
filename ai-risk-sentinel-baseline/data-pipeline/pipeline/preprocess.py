@@ -35,24 +35,71 @@ def process_real_dataset(raw_dir, conn):
         print(f"[ERROR] Raw CSV files not found. Ensure both '{txn_path}' and '{id_path}' exist in '{raw_dir}'.")
         return False
 
-    print("Loading datasets (this may take a minute)...")
-    # Load subsets of the datasets to keep memory utilization low
-    tx_df = pd.read_csv(txn_path, nrows=50000)
-    id_df = pd.read_csv(id_path, nrows=50000)
+    # Load datasets
+    sample_size = int(os.environ.get('DATA_SAMPLE_SIZE', '0'))
+    
+    if sample_size > 0:
+        print(f"[DEMO MODE] Reading initial chunk for chronological demo preview (target: {sample_size} rows)...")
+        tx_df = pd.read_csv(txn_path, nrows=sample_size * 2)
+        id_df = pd.read_csv(id_path, nrows=sample_size * 2)
+    else:
+        print("Loading full datasets without arbitrary truncation...")
+        tx_df = pd.read_csv(txn_path)
+        id_df = pd.read_csv(id_path)
     
     print("Merging transaction and identity on TransactionID...")
     merged = pd.merge(tx_df, id_df, on='TransactionID', how='left')
     
-    # Isolate all fraud entries and sample normal entries for balance
-    fraud_df = merged[merged['isFraud'] == 1]
-    normal_df = merged[merged['isFraud'] == 0].sample(n=min(len(merged[merged['isFraud'] == 0]), 1000), random_state=42)
-    sample_df = pd.concat([fraud_df, normal_df]).sample(frac=1, random_state=42)
+    # Sort chronologically
+    merged = merged.sort_values(['TransactionDT', 'TransactionID']).reset_index(drop=True)
     
-    print(f"Sampled {len(sample_df)} records (Fraud: {len(fraud_df)}, Normal: {len(normal_df)}).")
+    if sample_size > 0:
+        sample_df = merged.head(sample_size).copy()
+        print(f"[DEMO MODE] Processing first {len(sample_df)} chronological records for local database preview.")
+        print("Note: This chronological slice maintains temporal ordering for local testing and does not represent overall class distribution.")
+    else:
+        sample_df = merged
+        print(f"[FULL MODE] Processing complete dataset: {len(sample_df):,} records.")
+        
+    # Attempt to load trained Model D booster and decision thresholds for genuine risk scoring
+    current_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+    models_dir = os.path.join(current_dir, 'models')
+    model_d_path = os.path.join(models_dir, 'model_d_final.txt')
+    features_json_path = os.path.join(models_dir, 'model_d_features.json')
+    thresholds_path = os.path.join(models_dir, 'thresholds.json')
     
+    model_d = None
+    base_features = None
+    calibrator = None
+    threshold_block = 0.30398
+    threshold_review = 0.15000
+    
+    if os.path.exists(model_d_path) and os.path.exists(features_json_path):
+        try:
+            import lightgbm as lgb
+            model_d = lgb.Booster(model_file=model_d_path)
+            with open(features_json_path, 'r') as f:
+                base_features = json.load(f)
+            print("✓ Loaded Model D for genuine inference scoring.")
+            
+            # Load calibrator if exists
+            cal_path = os.path.join(models_dir, 'model_d_calibrator.joblib')
+            if os.path.exists(cal_path):
+                import joblib
+                calibrator = joblib.load(cal_path)
+                print("✓ Loaded probability calibrator.")
+                
+            # Load thresholds if exists
+            if os.path.exists(thresholds_path):
+                with open(thresholds_path, 'r') as f:
+                    th_data = json.load(f)
+                    threshold_block = th_data.get('threshold_block', threshold_block)
+                    threshold_review = th_data.get('threshold_review', threshold_review)
+        except Exception as e:
+            print(f"[WARNING] Could not load model for scoring: {e}")
+            
     cursor = conn.cursor()
-    
-    print("Mapping raw data into SQL Entity-Relationship schema...")
+    print("Mapping data into SQL Entity-Relationship schema with genuine model risk scoring...")
     
     # Helper to generate entity details
     def get_details(row, entity_type):
@@ -74,8 +121,35 @@ def process_real_dataset(raw_dir, conn):
                 details['CardType'] = str(row['card6'])
         return json.dumps(details)
 
-    # Loop through sampled entries and insert
-    for _, row in sample_df.iterrows():
+    # Pre-derive cyclical features if needed for scoring
+    if 'hour_of_day' not in sample_df.columns:
+        sample_df['hour_of_day'] = ((sample_df['TransactionDT'] // 3600) % 24).astype('float32')
+        sample_df['day_of_week'] = ((sample_df['TransactionDT'] // 86400) % 7).astype('float32')
+        sample_df['hour_sin'] = np.sin(2 * np.pi * (sample_df['TransactionDT'] % 86400) / 86400).astype('float32')
+        sample_df['hour_cos'] = np.cos(2 * np.pi * (sample_df['TransactionDT'] % 86400) / 86400).astype('float32')
+        sample_df['day_of_week_sin'] = np.sin(2 * np.pi * ((sample_df['TransactionDT'] // 86400) % 7) / 7).astype('float32')
+        sample_df['day_of_week_cos'] = np.cos(2 * np.pi * ((sample_df['TransactionDT'] // 86400) % 7) / 7).astype('float32')
+
+    # Compute batch risk scores if model is available
+    if model_d is not None and base_features is not None:
+        avail_features = [c for c in base_features if c in sample_df.columns]
+        missing_features = [c for c in base_features if c not in sample_df.columns]
+        scoring_df = sample_df[avail_features].copy()
+        for mf in missing_features:
+            scoring_df[mf] = 0
+        scoring_df = scoring_df[base_features]
+        raw_scores = model_d.predict(scoring_df)
+        if calibrator is not None:
+            cal_scores = np.clip(calibrator.predict(raw_scores), 0.0, 1.0)
+        else:
+            cal_scores = raw_scores
+        sample_df['computed_risk_score'] = cal_scores
+    else:
+        # Neutral baseline risk score when model is not yet compiled (NEVER leak isFraud)
+        sample_df['computed_risk_score'] = 0.035
+
+    # Loop through entries and insert
+    for idx, row in sample_df.iterrows():
         txn_id = f"TXN-{row['TransactionID']}"
         cust_id = f"CUS-{int(row['card1'])}" if not pd.isna(row.get('card1')) else f"CUS-{row['TransactionID']}"
         
@@ -89,9 +163,18 @@ def process_real_dataset(raw_dir, conn):
         if not pd.isna(row.get('addr1')):
             ip_addr = f"REG-{int(row['addr1'])}"
             
-        is_fraud = int(row['isFraud'])
-        risk_score = float(is_fraud)
-        action = 'BLOCK' if is_fraud == 1 else 'ALLOW'
+        is_fraud = int(row.get('isFraud', 0))
+        risk_score = round(float(row['computed_risk_score']), 4)
+        
+        # Determine action via Decision Engine thresholds (Decoupled from ground truth)
+        if risk_score >= threshold_block:
+            action = 'BLOCK'
+        elif risk_score >= threshold_review:
+            action = 'MANUAL_REVIEW'
+        else:
+            action = 'ALLOW'
+            
+        # Historical ground truth status is strictly preserved as resolution outcome for audit/evaluation
         status = 'CONFIRMED_ABUSE' if is_fraud == 1 else 'REVIEW_COMPLETED'
         
         # Derive timestamp dynamically based on TransactionDT (offset in seconds from reference date)
@@ -132,15 +215,16 @@ def process_real_dataset(raw_dir, conn):
         location = f"Country-{int(row['addr2'])}" if not pd.isna(row.get('addr2')) else None
 
         # Insert transaction details
+        risk_narrative = f"Model D calibrated risk score: {risk_score:.4f} -> Decision: {action}"
         cursor.execute("""
             INSERT OR IGNORE INTO transactions VALUES 
             (?, ?, ?, 'USD', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Parsed from raw dataset.')
         """, (txn_id, txn_time_str, float(row['TransactionAmt']), merchant_name, payment_method, 
               channel, location, risk_score, action, cust_id, device_id, ip_addr, 
-              f"Anomaly patterns flagged from raw IEEE-CIS ID {row['TransactionID']}", status))
+              risk_narrative, status))
 
     conn.commit()
-    print("Real data processing successfully completed!")
+    print("Database ingestion completed with honest model risk scores!")
     return True
 
 def preprocess():

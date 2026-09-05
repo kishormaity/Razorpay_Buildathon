@@ -13,11 +13,17 @@ policy:
     review: "MANUAL_REVIEW"
     critical: "HOLD"
 
+production_policy:
+  model_d_block_threshold: 0.50
+  model_d_review_threshold: 0.05
+  sentinel_threshold: 0.45
+
 cost_matrix:
   # Business loss parameter settings
   fp_cost: 1500.0         # Cost of customer checkout friction (False Positive)
   chargeback_fee: 1200.0   # Fixed fee for chargeback execution
   investigation_cost: 500.0 # SLA analyst verification overhead cost
+  review_capture_efficiency: 0.85 # Analyst review triage capture efficiency rate (Assumption)
   fn_loss_factor: 1.0     # Multiplier on transaction amount for missed fraud (False Negative)
 
 ring_scoring:
@@ -26,7 +32,7 @@ ring_scoring:
     w_relationship: 0.35
     w_temporal: 0.25
     w_behavioral: 0.20
-    w_financial: 0.20
+    w_financial: 0.00
   
   # Confidence threshold to flag coordinate community as an Abuse Ring
   abuse_threshold: 0.70

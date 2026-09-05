@@ -1,0 +1,5 @@
+{
+  "threshold_block": 0.30398,
+  "threshold_review": 0.15,
+  "methodology": "Baseline operating thresholds: Model D block >= 0.30398, Sentinel review >= 0.15000"
+}

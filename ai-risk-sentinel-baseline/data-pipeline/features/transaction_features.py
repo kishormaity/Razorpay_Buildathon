@@ -38,8 +38,9 @@ def main():
     # 3. Feature Grouping & Selection
     print("\n[2/5] Selecting base numerical and categorical features...")
     
-    # Direct Numerical features (TransactionAmt, TransactionDT, dist1, dist2, C*, D*, V*)
-    base_numerical = ['TransactionAmt', 'TransactionDT']
+    # Direct Numerical features (TransactionAmt, dist1, dist2, C*, D*, V*)
+    # NOTE: TransactionDT is excluded from model features and kept strictly in metadata for temporal ordering
+    base_numerical = ['TransactionAmt']
     for col in ['dist1', 'dist2']:
         if col in df.columns:
             base_numerical.append(col)
@@ -50,7 +51,7 @@ def main():
     
     numerical_features = base_numerical + c_cols + d_cols + v_cols
     numerical_features = [c for c in numerical_features if c in df.columns]
-    print(f"-> Selected {len(numerical_features)} numerical features.")
+    print(f"-> Selected {len(numerical_features)} numerical features (raw TransactionDT excluded).")
 
     # Direct Categorical features
     target_categoricals = [
@@ -65,6 +66,14 @@ def main():
     
     # log_transaction_amount
     df['log_transaction_amount'] = np.log1p(df['TransactionAmt'])
+    
+    # Stationary Cyclical Time Features (derived from TransactionDT without raw timestamp)
+    df['hour_of_day'] = ((df['TransactionDT'] // 3600) % 24).astype('float32')
+    df['day_of_week'] = ((df['TransactionDT'] // 86400) % 7).astype('float32')
+    df['hour_sin'] = np.sin(2 * np.pi * (df['TransactionDT'] % 86400) / 86400).astype('float32')
+    df['hour_cos'] = np.cos(2 * np.pi * (df['TransactionDT'] % 86400) / 86400).astype('float32')
+    df['day_of_week_sin'] = np.sin(2 * np.pi * ((df['TransactionDT'] // 86400) % 7) / 7).astype('float32')
+    df['day_of_week_cos'] = np.cos(2 * np.pi * ((df['TransactionDT'] // 86400) % 7) / 7).astype('float32')
     
     # card_type_combination (with UNKNOWN mapping for missing values)
     card4_clean = df['card4'].fillna('UNKNOWN').astype(str)
@@ -104,9 +113,13 @@ def main():
     print("\n[5/5] Writing transaction features Parquet...")
     
     # Explicit separation of metadata/target from inputs
-    metadata_cols = ['TransactionID']
+    # TransactionDT is preserved strictly as metadata for temporal ordering and causal lookups
+    metadata_cols = ['TransactionID', 'TransactionDT']
     target_cols = ['isFraud'] if 'isFraud' in df.columns else []
-    derived_cols = ['log_transaction_amount', 'card_type_combination', 'email_domain_match']
+    derived_cols = [
+        'log_transaction_amount', 'card_type_combination', 'email_domain_match',
+        'hour_of_day', 'day_of_week', 'hour_sin', 'hour_cos', 'day_of_week_sin', 'day_of_week_cos'
+    ]
     missing_flags = ['is_card_missing', 'is_email_missing', 'is_address_missing', 'is_device_missing', 'is_identity_missing']
     
     final_cols = metadata_cols + target_cols + numerical_features + categorical_features + derived_cols + missing_flags

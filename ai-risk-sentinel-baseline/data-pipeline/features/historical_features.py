@@ -74,7 +74,8 @@ def main():
     df = df.sort_values(['TransactionDT', 'TransactionID']).reset_index(drop=True)
     
     total_rows = len(df)
-    split_idx = int(total_rows * 0.8)
+    # Align strictly to the 70% train split (413,378 rows) to prevent cross-split target leakage
+    split_idx = int(total_rows * 0.7)
     
     # 3. Create Temporary Combo Columns for Complex Entities
     print("\n[3/5] Constructing combination keys...")

@@ -2,14 +2,11 @@ import os
 import sys
 import numpy as np
 import pandas as pd
-import shap
 
 class TabularSHAPExplainer:
     def __init__(self, booster_model, feature_names):
         self.model = booster_model
         self.feature_names = feature_names
-        # Load TreeExplainer
-        self.explainer = shap.TreeExplainer(self.model)
         
     def explain(self, single_row_df):
         X = pd.DataFrame(index=single_row_df.index)
@@ -24,11 +21,13 @@ class TabularSHAPExplainer:
             if X[col].dtype.name in ('object', 'category') or col in ('ProductCD', 'addr2', 'P_emaildomain'):
                 X[col] = X[col].astype('category')
                 
-        shap_values = self.explainer.shap_values(X)
-        if isinstance(shap_values, list):
-            s_vals = shap_values[1][0] if len(shap_values) > 1 else shap_values[0][0]
+        # Native TreeSHAP via LightGBM C++ pred_contrib (Lundberg et al., 2020)
+        # Returns [shap_feat_1, ..., shap_feat_n, base_value]
+        contribs = self.model.predict(X, pred_contrib=True)
+        if len(contribs.shape) > 1:
+            s_vals = contribs[0][:len(self.feature_names)]
         else:
-            s_vals = shap_values[0] if len(shap_values.shape) > 1 else shap_values
+            s_vals = contribs[:len(self.feature_names)]
             
         shap_dict = {}
         for feat, val in zip(self.feature_names, s_vals):

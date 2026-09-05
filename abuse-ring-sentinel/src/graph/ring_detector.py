@@ -117,13 +117,15 @@ def evaluate_rings():
         else:
             s_behav = 0.10
             
-        # D. Financial Score (Fraud Density)
-        fraud_labels = []
-        for u in users:
-            if u in user_tx_map.groups:
-                fraud_labels.extend(user_tx_map.get_group(u)['is_abuse'].values)
-                
-        s_fin = float(np.mean(fraud_labels)) if fraud_labels else 0.0
+        # D. Financial Score (Fraud Density - Disabled when w_fin == 0.0 to prevent target leakage)
+        if w_fin > 0.0:
+            fraud_labels = []
+            for u in users:
+                if u in user_tx_map.groups:
+                    fraud_labels.extend(user_tx_map.get_group(u)['is_abuse'].values)
+            s_fin = float(np.mean(fraud_labels)) if fraud_labels else 0.0
+        else:
+            s_fin = 0.0
         
         # Blended final risk calculation
         r_final = w_struct * s_struct + w_temp * s_temp + w_behav * s_behav + w_fin * s_fin
