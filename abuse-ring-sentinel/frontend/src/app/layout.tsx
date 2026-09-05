@@ -22,7 +22,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${inter.variable} h-full antialiased dark`}>
-      <body className="h-full bg-background text-text-primary font-sans antialiased overflow-hidden">
+      <body suppressHydrationWarning className="h-full bg-background text-text-primary font-sans antialiased overflow-hidden">
         <Providers>
           <div className="flex h-screen w-screen overflow-hidden bg-background">
             {/* Sidebar navigation */}

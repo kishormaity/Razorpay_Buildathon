@@ -800,19 +800,22 @@ export default function DashboardPage() {
                     </span>
                     <div className="space-y-1.5">
                       {activeCase.shap_contributions && activeCase.shap_contributions.length > 0 ? (
-                        activeCase.shap_contributions.slice(0, 3).map((shap: any, idx: number) => (
-                          <div key={idx} className="bg-card p-2 rounded-lg border border-border text-[10px] font-mono">
-                            <div className="flex justify-between items-center text-text-primary">
-                              <span className="font-semibold truncate max-w-[140px]">{shap.feature}</span>
-                              <span className={shap.shap_value > 0 ? 'text-risk-high font-bold' : 'text-risk-low font-bold'}>
-                                {shap.shap_value > 0 ? `+${shap.shap_value.toFixed(3)}` : shap.shap_value.toFixed(3)}
+                        activeCase.shap_contributions.slice(0, 3).map((shap: any, idx: number) => {
+                          const val = typeof shap.shap_value === 'number' ? shap.shap_value : (typeof shap.weight === 'number' ? shap.weight : 0);
+                          return (
+                            <div key={idx} className="bg-card p-2 rounded-lg border border-border text-[10px] font-mono">
+                              <div className="flex justify-between items-center text-text-primary">
+                                <span className="font-semibold truncate max-w-[140px]">{shap.feature}</span>
+                                <span className={val > 0 ? 'text-risk-high font-bold' : 'text-risk-low font-bold'}>
+                                  {val > 0 ? `+${val.toFixed(3)}` : val.toFixed(3)}
+                                </span>
+                              </div>
+                              <span className="text-[9px] text-text-secondary block mt-0.5">
+                                {shap.description || (shap.value !== null && shap.value !== undefined ? `Value: ${typeof shap.value === 'number' ? shap.value.toFixed(2) : String(shap.value)}` : 'Attribution Factor')}
                               </span>
                             </div>
-                            <span className="text-[9px] text-text-secondary block mt-0.5">
-                              Value: {shap.value !== null ? (typeof shap.value === 'number' ? shap.value.toFixed(2) : String(shap.value)) : 'N/A'}
-                            </span>
-                          </div>
-                        ))
+                          );
+                        })
                       ) : (
                         <div className="text-[10px] text-text-secondary p-4 text-center">
                           No SHAP attributions available.
@@ -825,7 +828,7 @@ export default function DashboardPage() {
                   <div className="bg-elevated border border-border rounded-xl p-4 space-y-2.5">
                     <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider block flex items-center justify-between">
                       <span>Bipartite Network Evidence</span>
-                      {activeCase.network_evidence?.community_id !== null && (
+                      {activeCase.network_evidence?.community_id != null && (
                         <span className="text-risk-ai font-mono text-[9px] font-bold">COMMUNITY #{activeCase.network_evidence?.community_id}</span>
                       )}
                     </span>
@@ -833,27 +836,47 @@ export default function DashboardPage() {
                     <div className="bg-card p-2.5 rounded-lg border border-border space-y-2 text-[10px] font-mono">
                       <div className="flex justify-between">
                         <span className="text-text-secondary">Shared Device:</span>
-                        <span className="font-bold text-text-primary">{activeCase.network_evidence?.shared_device || 'None'}</span>
+                        <span className="font-bold text-text-primary">
+                          {Array.isArray(activeCase.network_evidence)
+                            ? (activeCase.network_evidence.find((e: any) => e.entity_type === 'DEVICE')?.entity_id || 'None')
+                            : (activeCase.network_evidence?.shared_device || 'None')}
+                        </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-text-secondary">Shared IP Node:</span>
-                        <span className="font-bold text-text-primary">{activeCase.network_evidence?.shared_ip || 'None'}</span>
+                        <span className="font-bold text-text-primary">
+                          {Array.isArray(activeCase.network_evidence)
+                            ? (activeCase.network_evidence.find((e: any) => e.entity_type === 'IP')?.entity_id || 'None')
+                            : (activeCase.network_evidence?.shared_ip || 'None')}
+                        </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-text-secondary">Linked Ring Accounts:</span>
-                        <span className="font-bold text-risk-ai">{activeCase.network_evidence?.connected_accounts_count ?? 0}</span>
+                        <span className="font-bold text-risk-ai">
+                          {Array.isArray(activeCase.network_evidence)
+                            ? activeCase.network_evidence.length
+                            : (activeCase.network_evidence?.connected_accounts_count ?? 0)}
+                        </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-text-secondary">Community Risk:</span>
-                        <span className="font-bold text-text-primary">{activeCase.network_evidence?.community_risk_score?.toFixed(4) ?? '0.0000'}</span>
+                        <span className="font-bold text-text-primary">
+                          {typeof activeCase.sentinel_score === 'number'
+                            ? activeCase.sentinel_score.toFixed(4)
+                            : (activeCase.network_evidence?.community_risk_score?.toFixed(4) ?? '0.0000')}
+                        </span>
                       </div>
                     </div>
 
-                    {activeCase.network_evidence?.known_fraud_accounts && activeCase.network_evidence.known_fraud_accounts.length > 0 && (
+                    {Array.isArray(activeCase.network_evidence) && activeCase.network_evidence.length > 0 ? (
+                      <div className="text-[9px] font-mono text-risk-high bg-risk-high/10 border border-risk-high/20 rounded p-1.5 truncate">
+                        Linked Evidence: {activeCase.network_evidence.map((e: any) => e.connected_user || e.relationship).filter(Boolean).join(', ')}
+                      </div>
+                    ) : activeCase.network_evidence?.known_fraud_accounts && activeCase.network_evidence.known_fraud_accounts.length > 0 ? (
                       <div className="text-[9px] font-mono text-risk-high bg-risk-high/10 border border-risk-high/20 rounded p-1.5 truncate">
                         Linked Confirmed Fraud Nodes: {activeCase.network_evidence.known_fraud_accounts.join(', ')}
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               </div>
